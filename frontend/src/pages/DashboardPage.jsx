@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
-  Clock,
   ShieldCheck,
   MapPin,
   Users,
@@ -18,7 +17,6 @@ import {
   AlertCircle,
   Sparkles,
   Search,
-  ArrowDown,
   Layers,
   Activity,
   X
@@ -92,7 +90,7 @@ export default function DashboardPage() {
       if (assignRes.ok) {
         setAssignments(assignRes.data || []);
       }
-    } catch (err) {
+    } catch {
       showToast('Network error while fetching updates', 'error');
     } finally {
       setIsLoading(false);
@@ -175,7 +173,7 @@ export default function DashboardPage() {
       } else {
         showToast(res.error || 'Could not submit emergency report.', 'error');
       }
-    } catch (err) {
+    } catch {
       showToast('An unexpected network error occurred while submitting.', 'error');
     } finally {
       setIsSubmitting(false);
@@ -195,7 +193,7 @@ export default function DashboardPage() {
       } else {
         showToast(res.error || 'Could not accept assignment.', 'error');
       }
-    } catch (err) {
+    } catch {
       showToast('Network error while accepting assignment.', 'error');
     } finally {
       setActionLoadingId(null);
@@ -215,7 +213,7 @@ export default function DashboardPage() {
       } else {
         showToast(res.error || 'Could not resolve assignment.', 'error');
       }
-    } catch (err) {
+    } catch {
       showToast('Network error while marking case resolved.', 'error');
     } finally {
       setActionLoadingId(null);
@@ -342,13 +340,27 @@ export default function DashboardPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
           
           {/* Brand Identity & Explanation */}
-          <div className="flex items-center space-x-3.5">
+          <div className="flex items-center space-x-2.5 sm:space-x-3.5 flex-wrap">
             <Link
               to="/"
-              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-800 hover:bg-teal-700 text-teal-100 hover:text-white border border-teal-500 transition flex items-center gap-1.5 shadow-sm"
-              title="Return to the public project introduction"
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-teal-800 hover:bg-teal-700 text-teal-100 hover:text-white border border-teal-500 transition flex items-center gap-1 shadow-sm"
+              title="Return to public homepage"
             >
-              <span>← Public Website</span>
+              <span>← Public Site</span>
+            </Link>
+            <Link
+              to="/ngo-dashboard"
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-teal-300 hover:text-white border border-slate-700 transition hidden sm:inline-flex items-center gap-1.5"
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>NGO Workspace</span>
+            </Link>
+            <Link
+              to="/volunteer-dashboard"
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-teal-300 hover:text-white border border-slate-700 transition hidden sm:inline-flex items-center gap-1.5"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Volunteer Hub</span>
             </Link>
             <SetuLogo variant="dark" showTagline={false} iconSize={40} />
             <div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+
 import {
   HeartHandshake,
   ShieldCheck,
@@ -15,8 +16,10 @@ import {
   X,
   Info,
   Send,
-  Award
+  Award,
+  Sparkles
 } from 'lucide-react';
+
 import ApiService from '../services/api';
 import SetuLogo from '../components/SetuLogo';
 
@@ -114,24 +117,32 @@ export default function LandingPage() {
             </a>
           </nav>
 
-          {/* Right Action CTAs: Report a Need & Coordinator Dashboard (44px Height) */}
-          <div className="hidden sm:flex items-center gap-3 shrink-0">
+          {/* Right Action CTAs: Report a Need, NGO Dashboard & Volunteer Dashboard */}
+          <div className="hidden sm:flex items-center gap-2.5 shrink-0">
             <a
               href={GOOGLE_FORMS.need}
               target="_blank"
               rel="noopener noreferrer"
-              className="h-11 px-4 xl:px-5 bg-red-700 hover:bg-red-800 text-white font-bold text-sm rounded-xl shadow-xs transition flex items-center gap-2 focus:ring-4 focus:ring-red-200 whitespace-nowrap"
+              className="h-10 px-3.5 bg-red-700 hover:bg-red-800 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs transition flex items-center gap-1.5 focus:ring-4 focus:ring-red-200 whitespace-nowrap"
             >
-              <span>Report a Need</span>
-              <ExternalLink className="w-4 h-4 opacity-85" />
+              <span>Report Need</span>
+              <ExternalLink className="w-3.5 h-3.5 opacity-85" />
             </a>
 
             <Link
-              to="/dashboard"
-              className="h-11 px-4 xl:px-5 bg-[#17324F] hover:bg-[#0E2338] text-white font-bold text-sm rounded-xl shadow-xs transition flex items-center gap-2 border border-[#17324F] focus:ring-4 focus:ring-slate-300 whitespace-nowrap"
+              to="/ngo-dashboard"
+              className="h-10 px-3.5 bg-[#17324F] hover:bg-[#0E2338] text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs transition flex items-center gap-1.5 border border-[#17324F] whitespace-nowrap"
             >
-              <span>Coordinator Dashboard</span>
-              <ArrowRight className="w-4 h-4 text-teal-400" />
+              <Building2 className="w-3.5 h-3.5 text-teal-400" />
+              <span>NGO Depot</span>
+            </Link>
+
+            <Link
+              to="/volunteer-dashboard"
+              className="h-10 px-3.5 bg-[#16877F] hover:bg-teal-800 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs transition flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Volunteer Hub</span>
             </Link>
           </div>
 
@@ -189,25 +200,43 @@ export default function LandingPage() {
               </a>
             </nav>
 
-            <div className="pt-3 border-t border-[#E1E8F0] flex flex-col gap-3">
+            <div className="pt-3 border-t border-[#E1E8F0] flex flex-col gap-2.5">
               <a
                 href={GOOGLE_FORMS.need}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => setMobileMenuOpen(false)}
-                className="w-full min-h-[48px] py-3 bg-red-700 hover:bg-red-800 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition"
+                className="w-full min-h-[44px] px-4 py-2.5 bg-red-700 hover:bg-red-800 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition"
               >
-                <span>Report a Need</span>
+                <span>Report an Emergency</span>
                 <ExternalLink className="w-4 h-4" />
               </a>
 
               <Link
+                to="/ngo-dashboard"
+                onClick={() => setMobileMenuOpen(false)}
+                className="w-full min-h-[44px] px-4 py-2.5 bg-[#17324F] hover:bg-[#0E2338] text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition"
+              >
+                <Building2 className="w-4 h-4 text-teal-400" />
+                <span>NGO Dashboard</span>
+              </Link>
+
+              <Link
+                to="/volunteer-dashboard"
+                onClick={() => setMobileMenuOpen(false)}
+                className="w-full min-h-[44px] px-4 py-2.5 bg-[#16877F] hover:bg-teal-800 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition"
+              >
+                <Users className="w-4 h-4" />
+                <span>Volunteer Dashboard</span>
+              </Link>
+
+              <Link
                 to="/dashboard"
                 onClick={() => setMobileMenuOpen(false)}
-                className="w-full min-h-[48px] py-3 bg-[#17324F] hover:bg-[#0E2338] text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition"
+                className="w-full min-h-[44px] px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-[#17324F] font-bold text-sm rounded-xl flex items-center justify-center gap-2 transition"
               >
-                <span>Coordinator Dashboard</span>
-                <ArrowRight className="w-4 h-4 text-teal-400" />
+                <span>Coordinator Operations</span>
+                <ArrowRight className="w-4 h-4 text-slate-500" />
               </Link>
             </div>
           </div>
@@ -276,16 +305,46 @@ export default function LandingPage() {
 
               </div>
 
-              {/* Distinct Link to Coordinator Dashboard */}
-              <div className="pt-2 flex items-center gap-2 text-sm text-[#526277] font-semibold">
-                <span>Are you coordinating field dispatch?</span>
-                <Link
-                  to="/dashboard"
-                  className="text-[#16877F] hover:text-teal-900 underline font-bold flex items-center gap-1 transition"
-                >
-                  <span>Open Coordinator Dashboard</span>
-                  <ArrowRight className="w-4 h-4" />
-                </Link>
+              {/* Role-Based Workspaces Quick Entry (Phase 2 Requirement) */}
+              <div className="pt-2 bg-[#F7F9FC] border border-[#E1E8F0] p-4 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold uppercase tracking-wider text-[#16877F] flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Role-Specific Operational Portals</span>
+                  </span>
+                  <span className="text-slate-500 font-medium hidden sm:inline">
+                    Backend-Assigned Workflows
+                  </span>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center gap-2.5">
+                  <Link
+                    to="/ngo-dashboard"
+                    className="w-full sm:w-auto flex-1 min-h-[44px] px-4 py-2.5 bg-[#17324F] hover:bg-[#0E2338] text-white font-bold text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-2"
+                  >
+                    <Building2 className="w-4 h-4 text-teal-400" />
+                    <span>NGO Dashboard</span>
+                  </Link>
+
+                  <Link
+                    to="/volunteer-dashboard"
+                    className="w-full sm:w-auto flex-1 min-h-[44px] px-4 py-2.5 bg-[#16877F] hover:bg-teal-800 text-white font-bold text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-2"
+                  >
+                    <Users className="w-4 h-4" />
+                    <span>Volunteer Dashboard</span>
+                  </Link>
+                </div>
+
+                <div className="text-xs text-[#526277] flex items-center justify-between pt-1 border-t border-slate-200/60">
+                  <span>Coordinator triage and emergency intake:</span>
+                  <Link
+                    to="/dashboard"
+                    className="text-[#16877F] hover:text-teal-900 underline font-bold flex items-center gap-1"
+                  >
+                    <span>Coordinator Dashboard</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
               </div>
 
             </div>
@@ -851,8 +910,26 @@ export default function LandingPage() {
                 <li><a href="#impact" className="hover:text-white transition">Impact</a></li>
                 <li>
                   <Link
-                    to="/dashboard"
+                    to="/ngo-dashboard"
                     className="text-teal-300 hover:text-white font-bold flex items-center gap-1 transition"
+                  >
+                    <span>NGO Dashboard</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to="/volunteer-dashboard"
+                    className="text-teal-300 hover:text-white font-bold flex items-center gap-1 transition"
+                  >
+                    <span>Volunteer Dashboard</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to="/dashboard"
+                    className="text-slate-400 hover:text-white font-semibold flex items-center gap-1 transition"
                   >
                     <span>Coordinator Dashboard</span>
                     <ArrowRight className="w-3.5 h-3.5" />
