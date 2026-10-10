@@ -3,7 +3,7 @@
 // Follows strictly summary.md Section 5 Data Contracts & Section 6 API Routes
 // ============================================================================
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/+$/, '');
+const BASE_URL = (import.meta.env?.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/+$/, '');
 const MOCK_STORAGE_KEY = 'setu_mock_database_v1';
 const MOCK_CONFIG_KEY = 'setu_use_mock_config';
 
@@ -326,7 +326,7 @@ class ApiService {
     if (override !== null) {
       return override === 'true';
     }
-    return import.meta.env.VITE_USE_MOCK !== 'false';
+    return import.meta.env?.VITE_USE_MOCK !== 'false';
   }
 
   static setMockMode(enabled) {
@@ -411,6 +411,59 @@ class ApiService {
       error: res.error,
     };
   }
+
+  // --------------------------------------------------------------------------
+  // 1B. Community Telemetry Stats (GET /stats or GET /dashboard)
+  // --------------------------------------------------------------------------
+  static async getCommunityStats() {
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      return {
+        ok: true,
+        mode: 'mock',
+        data: {
+          total_volunteers: db.volunteers?.length || 2,
+          total_needs: db.needs?.length || 4,
+          total_ngos: db.ngos?.length || 2,
+        },
+      };
+    }
+
+    // Try GET /stats from stats.py
+    let res = await this.request('/stats');
+    if (res.ok && res.data) {
+      return {
+        ok: true,
+        mode: 'live',
+        data: {
+          total_volunteers: res.data.total_volunteers ?? 0,
+          total_needs: res.data.total_reports ?? res.data.total_needs ?? 0,
+          total_ngos: res.data.total_ngos ?? 0,
+        },
+      };
+    }
+
+    // Fallback to GET /dashboard
+    res = await this.request('/dashboard');
+    if (res.ok && res.data) {
+      return {
+        ok: true,
+        mode: 'live',
+        data: {
+          total_volunteers: res.data.total_volunteers ?? 0,
+          total_needs: res.data.total_needs ?? (res.data.reports?.length || 0),
+          total_ngos: res.data.total_ngos ?? 0,
+        },
+      };
+    }
+
+    return {
+      ok: false,
+      mode: 'unavailable',
+      error: res.error || 'Backend telemetry data unavailable',
+    };
+  }
+
 
   // --------------------------------------------------------------------------
   // 2. Needs Feed & Listing (GET /needs or GET /dashboard/reports)
