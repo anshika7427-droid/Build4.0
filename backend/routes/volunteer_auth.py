@@ -90,10 +90,11 @@ def send_otp_endpoint(data: SendOTPInput):
         if email in _verify_attempts:
             _verify_attempts[email] = {"count": 0, "blocked_until": None}
             
-    # Generate 6-digit OTP
-    otp = str(random.randint(100000, 999999))
+    # Generate cryptographically secure 6-digit OTP
+    import secrets
+    otp = str(secrets.randbelow(900000) + 100000)
     
-    # Save OTP to database
+    # Save OTP to database (hashed)
     save_otp(email, otp)
     
     # Send email

@@ -1,7 +1,8 @@
 import traceback
+from typing import Optional
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from backend.models import NeedInput
-from backend.auth import verify_token
+from backend.auth import verify_token, optional_verify_token
 from ai_processing.gemini_processor import process_need_text
 from database.geocoding import get_coordinates
 from database.needs_db import save_need, check_corroboration, get_all_needs, get_need_by_id
@@ -114,7 +115,7 @@ def process_and_save_need(data: NeedInput, background_tasks: BackgroundTasks):
         # Geocode only if exact coords aren't provided
         if (lat == 0.0 and lng == 0.0) and location_text and location_text.lower() != "unknown location":
             coords = get_coordinates(location_text)
-            
+
             # Fallback: if form was mapped backwards, real address might be in description under "Help:"
             if (not coords or (coords.get("lat") == 0.0 and coords.get("lng") == 0.0)) and "Help: " in data.description:
                 fallback_loc = data.description.split("Help: ")[-1].strip()
@@ -297,19 +298,43 @@ def create_need(
 
 
 @router.get("")
-def list_needs():
+def list_needs(token: Optional[dict] = Depends(optional_verify_token)):
     """
-    Public feed of all recorded emergency needs reports.
+    Feed of recorded emergency needs reports.
+    Masks distress caller phone numbers unless caller is an authorized coordinator/NGO.
     """
-    return get_all_needs()
+    docs = get_all_needs()
+    is_privileged = False
+    if isinstance(token, dict) and token.get("role") in ["system", "admin", "coordinator", "ngo"]:
+        is_privileged = True
+
+    if not is_privileged:
+        sanitized = []
+        for d in docs:
+            item = dict(d)
+            item["reporter_phone"] = None
+            sanitized.append(item)
+        return sanitized
+    return docs
 
 
 @router.get("/{need_id}")
-def get_single_need(need_id: str):
+def get_single_need(need_id: str, token: Optional[dict] = Depends(optional_verify_token)):
     """
     Retrieve single emergency need details by ID.
+    Masks distress caller phone numbers unless caller is an authorized coordinator/NGO.
     """
     need = get_need_by_id(need_id)
     if not need:
         raise HTTPException(status_code=404, detail=f"Need '{need_id}' not found.")
-    return need
+
+    is_privileged = False
+    if isinstance(token, dict) and token.get("role") in ["system", "admin", "coordinator", "ngo"]:
+        is_privileged = True
+
+    if not is_privileged:
+        sanitized = dict(need)
+        sanitized["reporter_phone"] = None
+        return sanitized
+    return need
+

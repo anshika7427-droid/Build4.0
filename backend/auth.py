@@ -77,3 +77,18 @@ def optional_verify_token(credentials: Optional[HTTPAuthorizationCredentials] = 
     except Exception:
         return None
 
+
+def require_roles(*allowed_roles):
+    """
+    FastAPI dependency factory enforcing that the authenticated user possesses one of the allowed roles.
+    """
+    def role_checker(token: dict = Depends(verify_token)) -> dict:
+        user_role = token.get("role")
+        if user_role not in allowed_roles:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Access denied: role '{user_role}' is not authorized for this action."
+            )
+        return token
+    return role_checker
+

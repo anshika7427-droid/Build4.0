@@ -90,15 +90,56 @@ def save_assignment(need_id: str, volunteer_id: str) -> str:
     return doc_id
 
 
-def resolve_assignment(doc_id: str, need_id: str, volunteer_id: str):
+def resolve_assignment(doc_id: str, need_id: str, volunteer_id: str) -> bool:
     """
     Marks the job as done, resolves the need, and frees up the volunteer.
-    All operations are committed in a single atomic database transaction.
+    Hardened for idempotency and concurrency:
+    - Atomically locks assignment row (FOR UPDATE)
+    - Validates existence and verifies supplied need_id and volunteer_id match
+    - If already resolved, returns True without decrementing capacity again (idempotent)
+    - If active, transitions assignment to resolved, resolves need, and decrements volunteer count
+    - Missing or mismatched records fail atomically without partial updates
     """
     resolved_at = datetime.now(timezone.utc)
 
     with get_db_cursor(commit=True) as cur:
-        # 1. Update assignment status
+        # 1. Fetch and lock the assignment row
+        cur.execute(
+            """
+            SELECT id, need_id, volunteer_id, status, resolved_at
+            FROM assignments
+            WHERE id = %s
+            FOR UPDATE
+            """,
+            (doc_id,)
+        )
+        assignment = cur.fetchone()
+        if not assignment:
+            raise ValueError(f"Assignment '{doc_id}' not found")
+
+        # 2. Strict ID matching validation: prevent corrupting or decrementing the wrong need/volunteer
+        stored_need_id = str(assignment.get("need_id") or "")
+        stored_volunteer_id = str(assignment.get("volunteer_id") or "")
+
+        if stored_need_id != str(need_id):
+            raise ValueError(
+                f"Mismatched need_id for assignment '{doc_id}': expected '{stored_need_id}', got '{need_id}'"
+            )
+        if stored_volunteer_id != str(volunteer_id):
+            raise ValueError(
+                f"Mismatched volunteer_id for assignment '{doc_id}': expected '{stored_volunteer_id}', got '{volunteer_id}'"
+            )
+
+        # 3. Idempotency check: if already resolved, do not decrement volunteer capacity again
+        if assignment.get("status") == "resolved" or assignment.get("resolved_at") is not None:
+            print(f"[INFO] Assignment {doc_id} is already resolved. Idempotent call; skipping capacity decrement.")
+            return True
+
+        # 4. Lock need and volunteer rows to guarantee atomic state transition
+        cur.execute("SELECT id, status FROM needs_reports WHERE id = %s FOR UPDATE", (need_id,))
+        cur.execute("SELECT id, active_assignments FROM volunteers WHERE id = %s FOR UPDATE", (volunteer_id,))
+
+        # 5. Update assignment status
         cur.execute(
             """
             UPDATE assignments SET 
@@ -109,7 +150,7 @@ def resolve_assignment(doc_id: str, need_id: str, volunteer_id: str):
             (resolved_at, doc_id)
         )
 
-        # 2. Update need status
+        # 6. Update need status
         cur.execute(
             """
             UPDATE needs_reports SET 
@@ -120,7 +161,7 @@ def resolve_assignment(doc_id: str, need_id: str, volunteer_id: str):
             (resolved_at, need_id)
         )
 
-        # 3. Atomically decrement volunteer active_assignments counter & restore availability
+        # 7. Atomically decrement volunteer active_assignments counter & restore availability
         cur.execute(
             """
             UPDATE volunteers SET 

@@ -458,7 +458,14 @@ def allocate_need_ngos(need_id: str, token: dict = Depends(verify_token)):
     """
     Allocates available NGO inventory capacity for an emergency need.
     Supports multi-NGO partial fulfillment (e.g., 200 meals = 120 + 80).
+    Requires NGO, coordinator, or system role.
     """
+    role = token.get("role")
+    if role not in ["system", "ngo", "admin", "coordinator"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: only NGOs or coordinators can trigger inventory allocation"
+        )
     try:
         result = allocate_ngos_for_need(need_id)
         return {"status": "success", "data": result}
@@ -474,7 +481,14 @@ def coordinate_need(need_id: str, token: dict = Depends(verify_token)):
     Target Demonstration Flow:
     1. Allocate NGO inventory against the required quantity (e.g. 200 meals = 120 + 80).
     2. Match and assign an eligible verified volunteer for last-mile delivery.
+    Requires NGO, coordinator, or system role.
     """
+    role = token.get("role")
+    if role not in ["system", "ngo", "admin", "coordinator"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: only NGOs or coordinators can trigger emergency coordination"
+        )
     need = get_need_by_id(need_id)
     if not need:
         raise HTTPException(status_code=404, detail=f"Need '{need_id}' not found")

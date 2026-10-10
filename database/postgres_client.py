@@ -13,6 +13,14 @@ DATABASE_URL = os.getenv("SUPABASE_DB_URL")
 
 _pool = None
 
+from psycopg2.extensions import TRANSACTION_STATUS_IDLE
+
+def safe_print(*args, **kwargs):
+    try:
+        print(*args, **kwargs)
+    except Exception:
+        pass
+
 def get_pool():
     global _pool
     if _pool is None:
@@ -21,7 +29,7 @@ def get_pool():
                 "SUPABASE_DB_URL is not set. Please add it to your config/.env file."
             )
         try:
-            print("[INFO] Initializing PostgreSQL Connection Pool...", flush=True)
+            safe_print("[INFO] Initializing PostgreSQL Connection Pool...", flush=True)
             
             # Robustly parse connection string to handle special characters (like '@') in passwords
             parsed = urlparse(DATABASE_URL)
@@ -55,14 +63,14 @@ def get_pool():
                     maxconn=20,
                     **conn_params
                 )
-                print("[OK] PostgreSQL Connection Pool initialized successfully.", flush=True)
+                safe_print("[OK] PostgreSQL Connection Pool initialized successfully.", flush=True)
             except Exception as pool_err:
                 # If pooler connection fails (e.g. IPv6/NAT64 SSL EOF on Windows), try direct host fallback
                 if "pooler.supabase.com" in (conn_params.get("host") or ""):
                     user_val = conn_params.get("user", "")
                     proj_ref = user_val.split(".", 1)[1] if "." in user_val else None
                     if proj_ref:
-                        print("[INFO] Pooler connection failed. Falling back to direct Supabase host...", flush=True)
+                        safe_print("[INFO] Pooler connection failed. Falling back to direct Supabase host...", flush=True)
                         fallback_params = dict(conn_params)
                         fallback_params["host"] = f"db.{proj_ref}.supabase.co"
                         fallback_params["port"] = 5432
@@ -72,13 +80,13 @@ def get_pool():
                             maxconn=20,
                             **fallback_params
                         )
-                        print("[OK] PostgreSQL Connection Pool initialized via direct host fallback.", flush=True)
+                        safe_print("[OK] PostgreSQL Connection Pool initialized via direct host fallback.", flush=True)
                     else:
                         raise pool_err
                 else:
                     raise pool_err
         except Exception as e:
-            print(f"[ERROR] Failed to initialize connection pool: {e}", flush=True)
+            safe_print(f"[ERROR] Failed to initialize connection pool: {e}", flush=True)
             raise e
     return _pool
 
@@ -89,7 +97,23 @@ def get_db_connection():
     try:
         yield conn
     finally:
-        pool_obj.putconn(conn)
+        if conn is not None:
+            try:
+                # Ensure connection is alive and healthy before returning to pool
+                if hasattr(conn, "closed") and conn.closed == 0:
+                    # Clean up any uncommitted, open, or aborted transaction
+                    if hasattr(conn, "get_transaction_status"):
+                        tx_status = conn.get_transaction_status()
+                        if tx_status != TRANSACTION_STATUS_IDLE:
+                            conn.rollback()
+                    pool_obj.putconn(conn)
+                else:
+                    pool_obj.putconn(conn, close=True)
+            except Exception:
+                try:
+                    pool_obj.putconn(conn, close=True)
+                except Exception:
+                    pass
 
 @contextmanager
 def get_db_cursor(commit=False, dict_cursor=True):
@@ -97,6 +121,7 @@ def get_db_cursor(commit=False, dict_cursor=True):
     Helper context manager to fetch database cursor.
     Uses RealDictCursor by default to return records as standard Python dicts,
     ensuring compatibility with existing model formats.
+    Guarantees transactions are committed or rolled back and cursors closed cleanly.
     """
     cursor_factory = RealDictCursor if dict_cursor else None
     with get_db_connection() as conn:
@@ -105,8 +130,17 @@ def get_db_cursor(commit=False, dict_cursor=True):
             yield cursor
             if commit:
                 conn.commit()
+            else:
+                # Cleanly finish read-only transaction so connection remains IDLE
+                conn.rollback()
         except Exception as e:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             raise e
         finally:
-            cursor.close()
+            try:
+                cursor.close()
+            except Exception:
+                pass

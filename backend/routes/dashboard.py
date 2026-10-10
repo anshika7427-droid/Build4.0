@@ -55,6 +55,10 @@ def get_reports_endpoint(token: Optional[dict] = Depends(optional_verify_token))
         need_to_vols = {}
         vol_dict = {}
     
+    is_privileged = False
+    if isinstance(token, dict) and token.get("role") in ["system", "admin", "coordinator", "ngo"]:
+        is_privileged = True
+
     # 3. Attach volunteer coordinates and assignment details to each report
     for r in docs:
         r_id = r.get("id")
@@ -63,12 +67,12 @@ def get_reports_endpoint(token: Optional[dict] = Depends(optional_verify_token))
         if r_id in need_to_vols:
             for v_id in need_to_vols[r_id]:
                 if v_id in vol_dict:
-                    assigned_vols.append(vol_dict[v_id])
+                    assigned_vols.append(dict(vol_dict[v_id]))
                 else:
                     assigned_vols.append({
                         "id": v_id,
                         "name": "Unknown Volunteer",
-                        "phone": "",
+                        "phone": None,
                         "lat": None,
                         "lng": None
                     })
@@ -87,22 +91,34 @@ def get_reports_endpoint(token: Optional[dict] = Depends(optional_verify_token))
         current_status = str(r.get("status") or "").lower()
         if current_status not in ["resolved", "rejected"]:
             r["status"] = "assigned" if is_assigned else "open"
-        r["assigned_volunteers"] = assigned_vols
         
         # Populate top-level fields required by frontend map.html
         if assigned_vols:
             primary_vol = assigned_vols[0]
             r["volunteer_id"] = primary_vol.get("id")
             r["volunteer_name"] = primary_vol.get("name")
-            r["volunteer_phone"] = primary_vol.get("phone")
-            r["volunteer_lat"] = primary_vol.get("lat")
-            r["volunteer_lng"] = primary_vol.get("lng")
+            r["volunteer_phone"] = primary_vol.get("phone") if is_privileged else None
+            r["volunteer_lat"] = primary_vol.get("lat") if is_privileged else None
+            r["volunteer_lng"] = primary_vol.get("lng") if is_privileged else None
         else:
             r["volunteer_id"] = None
             r["volunteer_name"] = None
             r["volunteer_phone"] = None
             r["volunteer_lat"] = None
             r["volunteer_lng"] = None
+
+        if not is_privileged:
+            r["reporter_phone"] = None
+            sanitized_assigned = []
+            for av in assigned_vols:
+                av_copy = dict(av)
+                av_copy["phone"] = None
+                av_copy["lat"] = None
+                av_copy["lng"] = None
+                sanitized_assigned.append(av_copy)
+            r["assigned_volunteers"] = sanitized_assigned
+        else:
+            r["assigned_volunteers"] = assigned_vols
         
         reports.append(r)
         

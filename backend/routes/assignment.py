@@ -34,38 +34,41 @@ def get_active_assignments(token: Optional[dict] = Depends(optional_verify_token
 def accept_need(
     need_id: str,
     volunteer_id: Optional[str] = Query(None),
-    token: any = Depends(optional_verify_token),
+    token: dict = Depends(verify_token),
 ):
     """
     Endpoint for a volunteer to 'claim' a need.
-    - Derives volunteer identity from authenticated token/session when available.
+    - Derives volunteer identity from authenticated token/session.
     - Prevents claiming someone else's assignment or duplicate claims.
     - Enforces volunteer existence, capacity/availability, skill compatibility,
       and Tier 1 verification for sensitive cases.
     """
     from backend.routes.match import is_sensitive_case, is_skill_compatible
 
-    # 1. Resolve volunteer identity
-    token_uid = None
-    if isinstance(token, dict):
-        token_uid = (
-            token.get("uid")
-            or token.get("sub")
-            or token.get("id")
-            or token.get("volunteer_id")
-        )
+    # 1. Resolve volunteer identity from verified token
+    token_role = token.get("role")
+    token_uid = str(
+        token.get("uid")
+        or token.get("sub")
+        or token.get("id")
+        or token.get("volunteer_id")
+        or ""
+    )
 
-    if token_uid:
-        # If token carries authenticated identity, verify client does not attempt impersonation
-        if volunteer_id and volunteer_id != token_uid:
+    if token_role == "volunteer":
+        if volunteer_id and str(volunteer_id) != token_uid:
             raise HTTPException(
                 status_code=403,
                 detail="Forbidden: You cannot claim an assignment for another volunteer.",
             )
         resolved_volunteer_id = token_uid
+    elif token_role in ["system", "admin", "coordinator", "ngo"]:
+        resolved_volunteer_id = volunteer_id or token_uid
     else:
-        # Fallback to client-provided volunteer_id during static token transition
-        resolved_volunteer_id = volunteer_id or "V001"
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: insufficient permissions to claim emergency need.",
+        )
 
     if not resolved_volunteer_id:
         raise HTTPException(status_code=400, detail="volunteer_id is required.")
@@ -168,10 +171,10 @@ def accept_assignment_endpoint(
     assignment_id: str,
     payload: Optional[dict] = None,
     volunteer_id: Optional[str] = Query(None),
-    token: any = Depends(optional_verify_token)
+    token: dict = Depends(verify_token)
 ):
     """Unified assignment accept endpoint for frontend callers."""
-    vol_id = (payload.get("volunteer_id") if payload else None) or volunteer_id or "V001"
+    vol_id = (payload.get("volunteer_id") if payload else None) or volunteer_id
     # Resolve if assignment_id is already an assignment
     with get_db_cursor(commit=False) as cur:
         cur.execute("SELECT need_id FROM assignments WHERE id = %s", (assignment_id,))
@@ -184,9 +187,31 @@ def accept_assignment_endpoint(
 def update_assignment_progress_endpoint(
     assignment_id: str,
     payload: Optional[dict] = None,
-    token: Optional[dict] = Depends(optional_verify_token)
+    token: dict = Depends(verify_token)
 ):
     """Mark an assignment in progress (en route)."""
+    caller_role = token.get("role")
+    caller_uid = str(token.get("uid") or "")
+
+    with get_db_cursor(commit=False) as cur:
+        cur.execute("SELECT * FROM assignments WHERE id = %s OR need_id = %s", (assignment_id, assignment_id))
+        assign_row = cur.fetchone()
+
+    if not assign_row:
+        raise HTTPException(status_code=404, detail=f"Assignment '{assignment_id}' not found.")
+
+    if caller_role == "volunteer":
+        if str(assign_row.get("volunteer_id") or "") != caller_uid:
+            raise HTTPException(status_code=403, detail="Forbidden: You can only update your own assignment progress.")
+    elif caller_role == "ngo":
+        with get_db_cursor(commit=False) as cur:
+            cur.execute("SELECT ngo_id FROM volunteers WHERE id = %s", (assign_row.get("volunteer_id"),))
+            v_row = cur.fetchone()
+        if not v_row or str(v_row.get("ngo_id") or "") != caller_uid:
+            raise HTTPException(status_code=403, detail="Forbidden: Volunteer is not affiliated with your NGO.")
+    elif caller_role not in ["system", "admin", "coordinator"]:
+        raise HTTPException(status_code=403, detail="Forbidden: insufficient permissions to update assignment.")
+
     notes = (payload.get("notes") if payload else "") or "En route with relief supplies"
     with get_db_cursor(commit=True) as cur:
         cur.execute("""
@@ -206,9 +231,31 @@ def update_assignment_progress_endpoint(
 def confirm_dispatch_endpoint(
     assignment_id: str,
     payload: Optional[dict] = None,
-    token: Optional[dict] = Depends(optional_verify_token)
+    token: dict = Depends(verify_token)
 ):
     """Confirm dispatch from warehouse depot."""
+    caller_role = token.get("role")
+    caller_uid = str(token.get("uid") or "")
+
+    with get_db_cursor(commit=False) as cur:
+        cur.execute("SELECT * FROM assignments WHERE id = %s OR need_id = %s", (assignment_id, assignment_id))
+        assign_row = cur.fetchone()
+
+    if not assign_row:
+        raise HTTPException(status_code=404, detail=f"Assignment '{assignment_id}' not found.")
+
+    if caller_role == "volunteer":
+        if str(assign_row.get("volunteer_id") or "") != caller_uid:
+            raise HTTPException(status_code=403, detail="Forbidden: You can only confirm dispatch for your own assignment.")
+    elif caller_role == "ngo":
+        with get_db_cursor(commit=False) as cur:
+            cur.execute("SELECT ngo_id FROM volunteers WHERE id = %s", (assign_row.get("volunteer_id"),))
+            v_row = cur.fetchone()
+        if not v_row or str(v_row.get("ngo_id") or "") != caller_uid:
+            raise HTTPException(status_code=403, detail="Forbidden: Volunteer is not affiliated with your NGO.")
+    elif caller_role not in ["system", "admin", "coordinator"]:
+        raise HTTPException(status_code=403, detail="Forbidden: insufficient permissions to confirm dispatch.")
+
     with get_db_cursor(commit=True) as cur:
         cur.execute("""
             UPDATE assignments
@@ -224,33 +271,38 @@ def confirm_dispatch_endpoint(
 
 @router.get("/volunteer/{volunteer_id}")
 def get_volunteer_assignments(
-    volunteer_id: str, token: Optional[dict] = Depends(optional_verify_token)
+    volunteer_id: str, token: dict = Depends(verify_token)
 ):
     from database.needs_db import get_need_by_id
     from database.assignments_db import get_assignments_by_volunteer_id
 
-    if isinstance(token, dict):
-        role = token.get("role")
-        caller_id = (
-            token.get("uid")
-            or token.get("sub")
-            or token.get("id")
-            or token.get("volunteer_id")
+    role = token.get("role")
+    caller_id = str(
+        token.get("uid")
+        or token.get("sub")
+        or token.get("id")
+        or token.get("volunteer_id")
+        or ""
+    )
+    if role == "volunteer" and caller_id != str(volunteer_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: cannot view another volunteer's assignments",
         )
-        if role == "volunteer" and caller_id != volunteer_id:
+    elif role == "ngo":
+        with get_db_cursor(commit=False) as cur:
+            cur.execute("SELECT ngo_id FROM volunteers WHERE id = %s", (volunteer_id,))
+            row = cur.fetchone()
+        if not row or str(row.get("ngo_id") or "") != caller_id:
             raise HTTPException(
                 status_code=403,
-                detail="Access denied: cannot view another volunteer's assignments",
+                detail="Access denied: volunteer is not affiliated with your NGO",
             )
-        elif role == "ngo":
-            with get_db_cursor(commit=False) as cur:
-                cur.execute("SELECT ngo_id FROM volunteers WHERE id = %s", (volunteer_id,))
-                row = cur.fetchone()
-            if not row or row.get("ngo_id") != caller_id:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Access denied: volunteer is not affiliated with your NGO",
-                )
+    elif role not in ["system", "admin", "coordinator"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: insufficient permissions to view volunteer assignments",
+        )
 
     assignments = get_assignments_by_volunteer_id(volunteer_id)
 
@@ -273,10 +325,11 @@ def get_volunteer_assignments(
 
 
 @router.patch("/{assignment_id}/resolve")
-def resolve(assignment_id: str, token: Optional[dict] = Depends(optional_verify_token)):
+def resolve(assignment_id: str, token: dict = Depends(verify_token)):
     """
     Volunteer, NGO, or system calls this to close a case.
     Marks assignment resolved and frees the volunteer status.
+    Requires authenticated identity and verifies authorization.
     """
     from database.assignments_db import resolve_assignment, get_assignment_by_id
 
@@ -304,27 +357,31 @@ def resolve(assignment_id: str, token: Optional[dict] = Depends(optional_verify_
             detail="Assignment data corrupted: missing need_id or volunteer_id",
         )
 
-    # 🔒 Authorization Check (permits system, admin, or unauthenticated coordinator)
-    if token is not None:
-        caller_role = token.get("role")
-        caller_uid = (
-            token.get("uid") or token.get("sub") or token.get("id") or token.get("volunteer_id")
+    # 🔒 Authorization Check: enforce caller identity and role
+    caller_role = token.get("role")
+    caller_uid = str(
+        token.get("uid") or token.get("sub") or token.get("id") or token.get("volunteer_id") or ""
+    )
+    if caller_role == "volunteer":
+        if not caller_uid or caller_uid != str(volunteer_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden: You can only resolve your own assignments."
+            )
+    elif caller_role == "ngo":
+        with get_db_cursor(commit=False) as cur:
+            cur.execute("SELECT ngo_id FROM volunteers WHERE id = %s", (volunteer_id,))
+            vol_row = cur.fetchone()
+        if not vol_row or str(vol_row.get("ngo_id") or "") != caller_uid:
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden: Volunteer is not affiliated with your NGO."
+            )
+    elif caller_role not in ["system", "admin", "coordinator"]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Access denied: role '{caller_role}' is not authorized to resolve assignments."
         )
-        if caller_role == "volunteer":
-            if not caller_uid or caller_uid != volunteer_id:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Forbidden: You can only resolve your own assignments."
-                )
-        elif caller_role == "ngo":
-            with get_db_cursor(commit=False) as cur:
-                cur.execute("SELECT ngo_id FROM volunteers WHERE id = %s", (volunteer_id,))
-                vol_row = cur.fetchone()
-            if not vol_row or vol_row.get("ngo_id") != caller_uid:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Forbidden: Volunteer is not affiliated with your NGO."
-                )
 
     # Prevent double-resolution
     if doc.get("resolved_at") is not None or doc.get("status") == "resolved":

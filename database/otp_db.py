@@ -1,12 +1,14 @@
 import logging
+import hashlib
 from database.postgres_client import get_db_cursor
 from datetime import datetime, timezone, timedelta
 
 def save_otp(email: str, otp: str, expires_in_minutes: int = 10) -> bool:
-    """Save the OTP for an email with an expiration time."""
+    """Save the hashed OTP for an email with an expiration time."""
     email_clean = email.strip().lower()
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=expires_in_minutes)
     created_at = datetime.now(timezone.utc)
+    otp_hash = hashlib.sha256(otp.strip().encode("utf-8")).hexdigest()
 
     with get_db_cursor(commit=True) as cur:
         cur.execute(
@@ -18,15 +20,17 @@ def save_otp(email: str, otp: str, expires_in_minutes: int = 10) -> bool:
                 expires_at = EXCLUDED.expires_at,
                 created_at = EXCLUDED.created_at
             """,
-            (email_clean, otp, expires_at, created_at)
+            (email_clean, otp_hash, expires_at, created_at)
         )
     print(f"[INFO] OTP saved for {email_clean}")
     return True
 
 
 def verify_otp_in_db(email: str, otp: str) -> bool:
-    """Check if the given OTP is valid and not expired."""
+    """Check if the given OTP is valid and not expired (supports both hashed and plaintext)."""
     email_clean = email.strip().lower()
+    otp_clean = otp.strip()
+    candidate_hash = hashlib.sha256(otp_clean.encode("utf-8")).hexdigest()
     
     with get_db_cursor(commit=False) as cur:
         cur.execute("SELECT * FROM otps WHERE email = %s", (email_clean,))
@@ -38,7 +42,7 @@ def verify_otp_in_db(email: str, otp: str) -> bool:
     stored_otp = row.get("otp")
     expires_at = row.get("expires_at")
     
-    if stored_otp != otp:
+    if stored_otp != otp_clean and stored_otp != candidate_hash:
         return False
         
     if expires_at:

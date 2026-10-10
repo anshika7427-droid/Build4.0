@@ -12,7 +12,7 @@ from typing import List, Dict, Optional
 import os
 import jwt
 from fastapi import (
-    FastAPI, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, Query, status
+    FastAPI, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, Query, Depends, status
 )
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +20,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from dotenv import load_dotenv
-from backend.auth import JWT_SECRET, JWT_ALGORITHM, SECRET_TOKEN
+from backend.auth import JWT_SECRET, JWT_ALGORITHM, SECRET_TOKEN, verify_token, optional_verify_token
 
 # Routers
 from backend.routes.need import router as need_router, process_and_save_need
@@ -245,14 +245,14 @@ app.include_router(stats_router)
 
 # 🌐 Plural REST Aliases (Supports frontend client conventions)
 @app.get("/needs")
-def list_needs_alias():
+def list_needs_alias(token: Optional[dict] = Depends(optional_verify_token)):
     from backend.routes.need import list_needs
-    return list_needs()
+    return list_needs(token=token)
 
 @app.get("/needs/{need_id}")
-def get_single_need_alias(need_id: str):
+def get_single_need_alias(need_id: str, token: Optional[dict] = Depends(optional_verify_token)):
     from backend.routes.need import get_single_need
-    return get_single_need(need_id)
+    return get_single_need(need_id, token=token)
 
 @app.post("/needs")
 def report_need_alias(data: NeedInput, background_tasks: BackgroundTasks):
@@ -277,18 +277,18 @@ def get_ngo_inventory_alias(ngo_id: str):
 
 @app.post("/ngos/{ngo_id}/inventory")
 @app.patch("/ngos/{ngo_id}/inventory")
-def set_ngo_inventory_alias(ngo_id: str, payload: dict):
+def set_ngo_inventory_alias(ngo_id: str, payload: dict, token: dict = Depends(verify_token)):
     from backend.routes.ngo import set_ngo_inventory_endpoint
     from backend.models import NGOInventoryInput
     res_type = payload.get("resource_type") or payload.get("need_type") or "food"
     qty = payload.get("total_quantity") if "total_quantity" in payload else payload.get("quantity", 0)
     unit = payload.get("unit") or "units"
-    return set_ngo_inventory_endpoint(ngo_id, NGOInventoryInput(resource_type=res_type, total_quantity=int(qty), unit=unit))
+    return set_ngo_inventory_endpoint(ngo_id, NGOInventoryInput(resource_type=res_type, total_quantity=int(qty), unit=unit), token=token)
 
 @app.get("/ngos/{ngo_id}/dispatches")
-def get_ngo_dispatches_alias(ngo_id: str):
+def get_ngo_dispatches_alias(ngo_id: str, token: dict = Depends(verify_token)):
     from backend.routes.ngo import get_ngo_dispatches
-    return get_ngo_dispatches(ngo_id)
+    return get_ngo_dispatches(ngo_id, token=token)
 
 @app.get("/ngos/{ngo_id}/needs")
 def get_ngo_needs_alias(ngo_id: str):
@@ -297,29 +297,29 @@ def get_ngo_needs_alias(ngo_id: str):
 
 @app.get("/assignments")
 @app.get("/assignments/active")
-def get_assignments_alias():
+def get_assignments_alias(token: Optional[dict] = Depends(optional_verify_token)):
     from backend.routes.assignment import get_active_assignments
-    return get_active_assignments()
+    return get_active_assignments(token=token)
 
 @app.post("/assignments/{assignment_id}/accept")
-def accept_assignment_alias(assignment_id: str, payload: Optional[dict] = None):
+def accept_assignment_alias(assignment_id: str, payload: Optional[dict] = None, token: dict = Depends(verify_token)):
     from backend.routes.assignment import accept_assignment_endpoint
-    return accept_assignment_endpoint(assignment_id, payload)
+    return accept_assignment_endpoint(assignment_id, payload, token=token)
 
 @app.patch("/assignments/{assignment_id}/progress")
-def update_assignment_progress_alias(assignment_id: str, payload: Optional[dict] = None):
+def update_assignment_progress_alias(assignment_id: str, payload: Optional[dict] = None, token: dict = Depends(verify_token)):
     from backend.routes.assignment import update_assignment_progress_endpoint
-    return update_assignment_progress_endpoint(assignment_id, payload)
+    return update_assignment_progress_endpoint(assignment_id, payload, token=token)
 
 @app.patch("/assignments/{assignment_id}/dispatch")
-def confirm_dispatch_alias(assignment_id: str, payload: Optional[dict] = None):
+def confirm_dispatch_alias(assignment_id: str, payload: Optional[dict] = None, token: dict = Depends(verify_token)):
     from backend.routes.assignment import confirm_dispatch_endpoint
-    return confirm_dispatch_endpoint(assignment_id, payload)
+    return confirm_dispatch_endpoint(assignment_id, payload, token=token)
 
 @app.patch("/assignments/{assignment_id}/resolve")
-def resolve_assignment_alias(assignment_id: str):
+def resolve_assignment_alias(assignment_id: str, token: dict = Depends(verify_token)):
     from backend.routes.assignment import resolve
-    return resolve(assignment_id)
+    return resolve(assignment_id, token=token)
 
 from fastapi.staticfiles import StaticFiles
 if os.path.isdir("frontendnew"):

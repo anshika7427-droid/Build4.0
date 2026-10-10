@@ -12,10 +12,17 @@ router = APIRouter(prefix="/ngo", tags=["NGO"])
 
 
 @router.post("/{ngo_id}/inventory")
-def set_ngo_inventory_endpoint(ngo_id: str, data: NGOInventoryInput, token: Optional[dict] = Depends(optional_verify_token)):
+def set_ngo_inventory_endpoint(ngo_id: str, data: NGOInventoryInput, token: dict = Depends(verify_token)):
     """Set or update NGO inventory stock capacity."""
-    if isinstance(token, dict) and token.get("role") == "ngo" and token.get("uid") != ngo_id:
-        raise HTTPException(status_code=403, detail="Access denied: cannot modify another NGO's inventory")
+    role = token.get("role")
+    uid = str(token.get("uid") or "")
+
+    if role == "ngo":
+        if uid != str(ngo_id):
+            raise HTTPException(status_code=403, detail="Access denied: cannot modify another NGO's inventory")
+    elif role not in ["system", "admin", "coordinator"]:
+        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions to modify NGO inventory")
+
     inv_id = add_or_update_inventory(ngo_id, data.resource_type, data.total_quantity, data.unit)
     return {
         "status": "success",
@@ -182,7 +189,12 @@ def get_ngo_dashboard(ngo_id: str, token: dict = Depends(verify_token)):
         managed_volunteers.append(volunteer)
 
     with get_db_cursor(commit=False) as cur:
-        cur.execute("SELECT * FROM assignments WHERE resolved_at IS NULL")
+        cur.execute("""
+            SELECT DISTINCT a.*
+            FROM assignments a
+            JOIN volunteers v ON a.volunteer_id = v.id
+            WHERE a.resolved_at IS NULL AND v.ngo_id = %s
+        """, (ngo_id,))
         assignment_rows = cur.fetchall()
 
     active_assignments = []
@@ -264,8 +276,16 @@ def get_ngo_needs(ngo_id: str):
 
 
 @router.get("/{ngo_id}/dispatches")
-def get_ngo_dispatches(ngo_id: str):
+def get_ngo_dispatches(ngo_id: str, token: dict = Depends(verify_token)):
     """Retrieve active and historical dispatches for this NGO."""
+    role = token.get("role")
+    uid = str(token.get("uid") or "")
+    if role == "ngo":
+        if uid != str(ngo_id):
+            raise HTTPException(status_code=403, detail="Access denied: cannot view another NGO's dispatches")
+    elif role not in ["system", "admin", "coordinator"]:
+        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions to view NGO dispatches")
+
     with get_db_cursor(commit=False) as cur:
         cur.execute("""
             SELECT a.id, a.need_id, a.ngo_id, a.resource_type, a.allocated_quantity, a.status as dispatch_status, a.created_at,

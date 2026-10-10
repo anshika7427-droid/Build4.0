@@ -98,14 +98,37 @@ def update_own_status(data: VolunteerStatusInput, token: dict = Depends(verify_t
 def update_volunteer_availability_endpoint(
     volunteer_id: str,
     data: VolunteerStatusInput,
-    token: Optional[dict] = Depends(optional_verify_token)
+    token: dict = Depends(verify_token)
 ):
     """
     Update a volunteer's on-duty/off-duty availability.
+    Enforces that volunteers can only update their own status,
+    and NGOs can only update status for their affiliated volunteers.
     """
     vol = get_volunteer(volunteer_id)
     if not vol:
         raise HTTPException(status_code=404, detail=f"Volunteer '{volunteer_id}' not found.")
+
+    role = token.get("role")
+    uid = str(token.get("uid") or "")
+
+    if role == "volunteer":
+        if uid != str(volunteer_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: cannot modify another volunteer's availability"
+            )
+    elif role == "ngo":
+        if str(vol.get("ngo_id") or "") != uid:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: volunteer is not affiliated with your NGO"
+            )
+    elif role not in ["system", "admin", "coordinator"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: insufficient permissions to update volunteer availability"
+        )
 
     update_volunteer_status(volunteer_id, data.available)
     return {"id": volunteer_id, "available": data.available, "message": f"Status updated to {'available' if data.available else 'off-duty'}."}
@@ -113,13 +136,13 @@ def update_volunteer_availability_endpoint(
 
 @router.get("/volunteers")
 def list_volunteers(token: Optional[dict] = Depends(optional_verify_token)):
-    """Public endpoint — returns all registered volunteers."""
+    """Public endpoint — returns all registered volunteers with sensitive fields redacted."""
     try:
         volunteers = get_all_volunteers()
         # Strip sensitive fields before sending to frontend
         safe_fields = ["id", "name", "skills", "available", "location",
                        "active_assignments", "ngo_id", "registered_at",
-                       "ngo_verified", "credential_tags", "lat", "lng", "vehicle"]
+                       "ngo_verified", "credential_tags", "vehicle"]
         sanitized = [
             {k: v for k, v in vol.items() if k in safe_fields}
             for vol in volunteers
@@ -132,25 +155,72 @@ def list_volunteers(token: Optional[dict] = Depends(optional_verify_token)):
 
 @router.get("/volunteer/{volunteer_id}")
 @router.get("/volunteers/{volunteer_id}")
-def get_single_volunteer(volunteer_id: str):
-    """Retrieve details of a single volunteer."""
+def get_single_volunteer(
+    volunteer_id: str,
+    token: Optional[dict] = Depends(optional_verify_token)
+):
+    """
+    Retrieve details of a single volunteer.
+    Masks personal phone numbers and emails unless caller is privileged or the volunteer themselves.
+    """
     vol = get_volunteer(volunteer_id)
     if not vol:
         raise HTTPException(status_code=404, detail=f"Volunteer '{volunteer_id}' not found.")
+
+    is_privileged = False
+    if isinstance(token, dict):
+        role = token.get("role")
+        uid = str(token.get("uid") or "")
+        if role in ["system", "admin", "coordinator"]:
+            is_privileged = True
+        elif role == "volunteer" and uid == str(volunteer_id):
+            is_privileged = True
+        elif role == "ngo" and str(vol.get("ngo_id") or "") == uid:
+            is_privileged = True
+
     safe_fields = ["id", "name", "skills", "available", "location",
                    "active_assignments", "ngo_id", "registered_at",
-                   "ngo_verified", "credential_tags", "lat", "lng", "phone", "email", "vehicle"]
+                   "ngo_verified", "credential_tags", "vehicle"]
+    if is_privileged:
+        safe_fields.extend(["phone", "email", "lat", "lng"])
+
     return {k: v for k, v in vol.items() if k in safe_fields}
 
 
 @router.get("/volunteers/{volunteer_id}/assignments")
 def get_vol_assignments_alias(
     volunteer_id: str,
-    token: Optional[dict] = Depends(optional_verify_token)
+    token: dict = Depends(verify_token)
 ):
-    """Alias for volunteer assignments feed."""
+    """Secured alias for volunteer assignments feed."""
     from database.needs_db import get_need_by_id
     from database.assignments_db import get_assignments_by_volunteer_id
+
+    role = token.get("role")
+    caller_id = str(
+        token.get("uid")
+        or token.get("sub")
+        or token.get("id")
+        or token.get("volunteer_id")
+        or ""
+    )
+    if role == "volunteer" and caller_id != str(volunteer_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: cannot view another volunteer's assignments",
+        )
+    elif role == "ngo":
+        vol = get_volunteer(volunteer_id)
+        if not vol or str(vol.get("ngo_id") or "") != caller_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: volunteer is not affiliated with your NGO",
+            )
+    elif role not in ["system", "admin", "coordinator"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: insufficient permissions to view volunteer assignments",
+        )
 
     assignments = get_assignments_by_volunteer_id(volunteer_id)
     result = []
