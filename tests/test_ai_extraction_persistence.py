@@ -87,13 +87,17 @@ class TestExtractionCorrectness:
         res_str = _normalize_extraction({"consistency": "invalid"}, "test")
         assert res_str["consistency"] is None
 
+    @patch("backend.routes.need.check_reporter_reputation")
+    @patch("backend.routes.need.check_duplicate_and_rate_limit")
     @patch("backend.routes.need.get_coordinates")
     @patch("backend.routes.need.save_need")
     @patch("backend.routes.need._auto_match_for_need")
-    def test_04_unknown_quantity_cannot_create_actionable_record(self, mock_match, mock_save, mock_geocode):
+    def test_04_unknown_quantity_cannot_create_actionable_record(self, mock_match, mock_save, mock_geocode, mock_dup, mock_rep):
         """Replaces legacy test 22: Unknown quantity must NEVER be 0/100/200 and NEVER auto-dispatch."""
         mock_geocode.return_value = {"lat": 26.4499, "lng": 80.3319}
         mock_save.return_value = "doc-unk-999"
+        mock_dup.return_value = {"is_identical_text": False, "recent_reports_count_one_hour": 0, "text_hash": "hash_unk"}
+        mock_rep.return_value = {"is_registered_ngo_or_camp": False, "has_resolved_history": False, "is_flagged_history": False, "flagged_deduction": 0}
 
         bg = BackgroundTasks()
         inp = NeedInput(
@@ -126,8 +130,10 @@ class TestExtractionCorrectness:
         }
         doc_id = save_need(data)
         assert doc_id == "need-null-qty"
-        mock_cur.execute.assert_called_once()
-        args = mock_cur.execute.call_args[0][1]
+        assert mock_cur.execute.call_count >= 1
+        insert_calls = [c for c in mock_cur.execute.call_args_list if len(c[0]) > 0 and "INSERT INTO" in str(c[0][0])]
+        assert len(insert_calls) == 1
+        args = insert_calls[0][0][1]
         # index 18 corresponds to required_quantity parameter
         assert args[18] is None
 

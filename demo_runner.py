@@ -10,7 +10,6 @@ Runs the complete golden-path emergency coordination workflow:
 6. Verified volunteer assignment
 7. Assignment resolution & status update
 """
-
 import os
 import sys
 import json
@@ -40,10 +39,10 @@ def run_demo(base_url="http://127.0.0.1:8080", secret_token=None):
     load_dotenv("config/.env")
     token = secret_token or os.getenv("SECRET_TOKEN", "test-secret-token")
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-
+    
     # Check for CLI flags
     mock_mode = "--mock" in sys.argv or "--offline" in sys.argv
-
+    
     # Mode detection: live server or in-memory TestClient
     use_test_client = False
     if not mock_mode:
@@ -67,7 +66,6 @@ def run_demo(base_url="http://127.0.0.1:8080", secret_token=None):
                     conn_ok = True
             except Exception:
                 conn_ok = False
-
         if not conn_ok:
             mock_mode = True
             print(f"{C.YELLOW}[NOTE] Live Supabase database not yet reachable.{C.END}")
@@ -84,8 +82,7 @@ def run_demo(base_url="http://127.0.0.1:8080", secret_token=None):
 
         log_step(1, "SUBMIT PLAIN-TEXT EMERGENCY REPORT & EXTRACT NEED")
         sample_text = "200 people at flood relief camp in Wayanad need cooked meals urgently"
-        print(f"{C.BOLD}Input Distress Text:{C.END} \"{sample_text}\"")
-
+        print(f'{C.BOLD}Input Distress Text:{C.END} "{sample_text}"')
         extracted = extract_need_deterministic(sample_text)
         need_id = f"need_{os.urandom(4).hex()}"
         print(f"-> {C.GREEN}Created Need ID:{C.END} {need_id}")
@@ -150,24 +147,20 @@ def run_demo(base_url="http://127.0.0.1:8080", secret_token=None):
                 "verified": True
             }
         ]
-
         mock_cur = MagicMock()
         mock_cur.fetchone.return_value = fake_need
         mock_cur.fetchall.return_value = fake_candidates
-
         with patch("database.inventory_db.get_db_cursor") as mock_get_db:
             mock_get_db.return_value.__enter__.return_value = mock_cur
             coord_res = allocate_ngos_for_need(need_id)
-
         print(f"-> {C.BOLD}Coordination Status:{C.END} {coord_res.get('status')}")
         print(f"-> {C.BOLD}Required Quantity:{C.END}   {coord_res.get('required_quantity')} meals")
         print(f"-> {C.BOLD}Fulfilled Quantity:{C.END}  {coord_res.get('fulfilled_quantity')} meals")
         print(f"-> {C.BOLD}Remaining Shortfall:{C.END} {coord_res.get('remaining_shortfall')} meals")
-        
+
         print(f"\n{C.YELLOW}NGO Allocations Breakdown (Partial Fulfillment):{C.END}")
         for alloc in coord_res.get("allocations", []):
             print(f"   * {C.GREEN}{alloc.get('ngo_name')}:{C.END} {alloc.get('allocated_quantity')} meals (Reserved)")
-
         assignment_id = f"asgn_{os.urandom(3).hex()}"
         print(f"\n{C.YELLOW}Assigned Volunteer:{C.END}")
         print(f"   * Name: Arjun Kumar (Mini Truck)")
@@ -198,7 +191,31 @@ def run_demo(base_url="http://127.0.0.1:8080", secret_token=None):
     def http_get(path, auth=True):
         h = headers if auth else {}
         res = client.get(path, headers=h)
-        return res.status_code, res.json()
+        try:
+            body = res.json()
+        except ValueError:
+            body = {"detail": res.text[:1000]}
+        return res.status_code, body
+
+    # STEP 1: Submit a real emergency report before using need_id.
+    log_step(1, "SUBMIT PLAIN-TEXT EMERGENCY REPORT & EXTRACT NEED")
+    sample_text = "200 people at flood relief camp in Wayanad need cooked meals urgently"
+    print(f"{C.BOLD}Input Distress Text:{C.END} \"{sample_text}\"")
+    code, report_res = http_post("/need/report", {
+        "description": sample_text,
+        "lat": 11.6854,
+        "lng": 76.1320,
+    }, auth=False)
+    if code not in (200, 201):
+        print(f"{C.RED}Emergency report failed (HTTP {code}):{C.END} {report_res}")
+        return
+    if not isinstance(report_res, dict):
+        print(f"{C.RED}Unexpected emergency-report response:{C.END} {report_res}")
+        return
+    need_id = report_res.get("id") or report_res.get("need_id")
+    if not need_id:
+        print(f"{C.RED}No need ID in API response:{C.END} {report_res}")
+        return
     print(f"-> {C.GREEN}Created Need ID:{C.END} {need_id}")
     print(f"-> {C.GREEN}Extracted Resource:{C.END} {report_res.get('resource_type')}")
     print(f"-> {C.GREEN}Extracted Quantity:{C.END} {report_res.get('required_quantity')} {report_res.get('unit')}")
@@ -267,7 +284,7 @@ def run_demo(base_url="http://127.0.0.1:8080", secret_token=None):
     print(f"-> {C.BOLD}Required Quantity:{C.END}   {coord_res.get('required_quantity')} meals")
     print(f"-> {C.BOLD}Fulfilled Quantity:{C.END}  {coord_res.get('fulfilled_quantity')} meals")
     print(f"-> {C.BOLD}Remaining Shortfall:{C.END} {coord_res.get('remaining_shortfall')} meals")
-    
+
     print(f"\n{C.YELLOW}NGO Allocations Breakdown:{C.END}")
     for alloc in coord_res.get("ngo_allocations", []):
         print(f"   * {C.GREEN}{alloc.get('ngo_name')}:{C.END} {alloc.get('allocated_quantity')} {alloc.get('resource_type')}")

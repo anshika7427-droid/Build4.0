@@ -659,7 +659,7 @@ def action_run_golden_demo():
     print_section("8. Run Automated 7-Step Golden-Path Demo")
     print(dim("Runs end-to-end simulation of all 7 SETU capabilities.\n"))
 
-    from demo_runner_fixed import run_demo
+    from demo_runner import run_demo
     try:
         run_demo(base_url=BASE_URL, secret_token=session_state["token"])
     except Exception as e:
