@@ -1,5 +1,6 @@
 import sys
 import io
+import os
 import traceback
 
 # Force UTF-8 stdout/stderr on Windows to prevent UnicodeEncodeError with emojis
@@ -9,18 +10,19 @@ if sys.platform == "win32" and type(sys.stderr).__name__ == "TextIOWrapper":
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from typing import List, Dict, Optional
-import os
 import jwt
 from fastapi import (
-    FastAPI, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, Query, Depends, status
+    FastAPI, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, Query, status, Depends, HTTPException
 )
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from dotenv import load_dotenv
 from backend.auth import JWT_SECRET, JWT_ALGORITHM, SECRET_TOKEN, verify_token, optional_verify_token
+from backend.config import settings
 
 # Routers
 from backend.routes.need import router as need_router, process_and_save_need
@@ -40,6 +42,7 @@ from database.ngos_db import get_ngo
 
 load_dotenv(dotenv_path="config/.env")
 
+
 # 🔌 WebSocket Manager
 class WebSocketManager:
     def __init__(self):
@@ -58,10 +61,11 @@ class WebSocketManager:
         for connection in self.active_connections:
             try:
                 await connection.send_json(data)
-            except Exception as e:
+            except Exception:
                 stale_connections.append(connection)
         for stale in stale_connections:
             self.disconnect(stale)
+
 
 manager = WebSocketManager()
 app = FastAPI()
@@ -71,27 +75,34 @@ limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# 🔥 CORS - Allows your local frontend to talk to this live backend
+# 🔥 CORS Configuration
+cors_origins = (
+    settings.allowed_origins
+    if isinstance(settings.allowed_origins, list) and settings.allowed_origins
+    else ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 🔌 WebSocket endpoint
+
+# 🔌 WebSocket endpoint (uses canonical verify_token from auth.py)
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
     user = None
     if token:
-        if token == SECRET_TOKEN:
-            user = {"uid": "system", "role": "system", "email": "system@setu.org"}
-        else:
-            try:
-                user = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-            except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-                user = None
+        try:
+            creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+            user = verify_token(creds)
+        except HTTPException:
+            user = None
+        except Exception:
+            user = None
 
     if not user:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unauthorized")
@@ -104,8 +115,10 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
+
 # 🏠 Health Checks
 from fastapi.responses import FileResponse
+
 
 @app.get("/")
 def home(request: Request):
@@ -113,6 +126,7 @@ def home(request: Request):
         if os.path.exists("frontendnew/landing.html"):
             return FileResponse("frontendnew/landing.html")
     return {"message": "Setu Backend Active", "env": "Cloud Run"}
+
 
 @app.get("/health")
 def health():
@@ -139,6 +153,7 @@ def public_config():
         "primary_geocoder": "openstreetmap" if not google_maps_api_key else "googlemaps"
     }
 
+
 # 🔗 NEED WEBHOOK
 @app.post("/webhook")
 @limiter.limit("5/minute")
@@ -154,8 +169,6 @@ async def webhook(request: Request, payload: Dict, background_tasks: BackgroundT
             except (ValueError, TypeError):
                 return 0.0
 
-        # Concatenate everything into description so the AI doesn't miss the full story
-        # if the user typed their emergency into the wrong box.
         loc_val = (
             payload.get("location_text")
             or payload.get("location")
@@ -184,15 +197,15 @@ async def webhook(request: Request, payload: Dict, background_tasks: BackgroundT
         traceback.print_exc()
         return {"error": str(e)}
 
-# 🔗 VOLUNTEER WEBHOOK (Updated to capture Email)
+
+# 🔗 VOLUNTEER WEBHOOK
 @app.post("/volunteer_webhook")
 @limiter.limit("5/minute")
 async def webhook_ngo_register_alias(request: Request, payload: Dict, background_tasks: BackgroundTasks):
-    # If a form hits this accidentally, we still process it as an SOS/Need
     try:
         mapped_volunteer = {
             "name": payload.get("volunteer_name", "Unknown"),
-            "email": payload.get("email", "no-email@setu.com"),  # ✅ Field added to fix the "test" email issue
+            "email": payload.get("email", "no-email@setu.com"),
             "phone": payload.get("phone", "0000000000"),
             "skills": (
                 [skill.strip().lower() for skill in payload.get("skills", "").split(",")]
@@ -203,9 +216,6 @@ async def webhook_ngo_register_alias(request: Request, payload: Dict, background
             "ngo_id": payload.get("ngo_id", None),
             "available": True,
             "active_assignments": 0,
-            # 🔒 SECURITY: Public webhook NEVER auto-verifies as Tier 1.
-            # Even if a valid ngo_id is supplied, the volunteer starts as Tier 2.
-            # An authenticated NGO must separately verify their volunteers.
             "ngo_verified": False
         }
 
@@ -213,8 +223,6 @@ async def webhook_ngo_register_alias(request: Request, payload: Dict, background
 
         doc_id = save_volunteer(mapped_volunteer)
 
-        # 🔥 Broadcast update via WebSocket
-        # 🔒 SECURITY: Sanitize broadcast payload — omit phone, email, and personal PII
         broadcast_volunteer = {
             "name": mapped_volunteer.get("name", "Volunteer"),
             "skills": mapped_volunteer.get("skills", []),
@@ -233,6 +241,7 @@ async def webhook_ngo_register_alias(request: Request, payload: Dict, background
         traceback.print_exc()
         return {"error": str(e)}
 
+
 # 📦 Include all specialized routers
 app.include_router(need_router)
 app.include_router(volunteer_router)
@@ -243,21 +252,25 @@ app.include_router(assignment_router)
 app.include_router(ngo_router)
 app.include_router(stats_router)
 
-# 🌐 Plural REST Aliases (Supports frontend client conventions)
+
+# 🌐 Plural REST Aliases (with auth enforcement matching primary routes)
 @app.get("/needs")
 def list_needs_alias(token: Optional[dict] = Depends(optional_verify_token)):
     from backend.routes.need import list_needs
     return list_needs(token=token)
+
 
 @app.get("/needs/{need_id}")
 def get_single_need_alias(need_id: str, token: Optional[dict] = Depends(optional_verify_token)):
     from backend.routes.need import get_single_need
     return get_single_need(need_id, token=token)
 
+
 @app.post("/needs")
-def report_need_alias(data: NeedInput, background_tasks: BackgroundTasks):
+def report_need_alias(data: NeedInput, background_tasks: BackgroundTasks, token: dict = Depends(verify_token)):
     from backend.routes.need import process_and_save_need
     return process_and_save_need(data, background_tasks)
+
 
 @app.get("/ngos")
 def list_ngos_alias():
@@ -265,15 +278,18 @@ def list_ngos_alias():
     res = list_ngos()
     return res.get("data", []) if isinstance(res, dict) and "data" in res else res
 
+
 @app.get("/ngos/{ngo_id}")
-def get_ngo_alias(ngo_id: str):
+def get_ngo_alias(ngo_id: str, token: Optional[dict] = Depends(optional_verify_token)):
     from backend.routes.ngo import get_ngo_details
-    return get_ngo_details(ngo_id)
+    return get_ngo_details(ngo_id, token)
+
 
 @app.get("/ngos/{ngo_id}/inventory")
-def get_ngo_inventory_alias(ngo_id: str):
+def get_ngo_inventory_alias(ngo_id: str, token: dict = Depends(verify_token)):
     from backend.routes.ngo import get_ngo_inventory_endpoint
-    return get_ngo_inventory_endpoint(ngo_id)
+    return get_ngo_inventory_endpoint(ngo_id, token)
+
 
 @app.post("/ngos/{ngo_id}/inventory")
 @app.patch("/ngos/{ngo_id}/inventory")
@@ -285,41 +301,49 @@ def set_ngo_inventory_alias(ngo_id: str, payload: dict, token: dict = Depends(ve
     unit = payload.get("unit") or "units"
     return set_ngo_inventory_endpoint(ngo_id, NGOInventoryInput(resource_type=res_type, total_quantity=int(qty), unit=unit), token=token)
 
+
 @app.get("/ngos/{ngo_id}/dispatches")
 def get_ngo_dispatches_alias(ngo_id: str, token: dict = Depends(verify_token)):
     from backend.routes.ngo import get_ngo_dispatches
     return get_ngo_dispatches(ngo_id, token=token)
 
+
 @app.get("/ngos/{ngo_id}/needs")
-def get_ngo_needs_alias(ngo_id: str):
+def get_ngo_needs_alias(ngo_id: str, token: dict = Depends(verify_token)):
     from backend.routes.ngo import get_ngo_needs
-    return get_ngo_needs(ngo_id)
+    return get_ngo_needs(ngo_id, token=token)
+
 
 @app.get("/assignments")
 @app.get("/assignments/active")
-def get_assignments_alias(token: Optional[dict] = Depends(optional_verify_token)):
+def get_assignments_alias(token: dict = Depends(verify_token)):
     from backend.routes.assignment import get_active_assignments
     return get_active_assignments(token=token)
+
 
 @app.post("/assignments/{assignment_id}/accept")
 def accept_assignment_alias(assignment_id: str, payload: Optional[dict] = None, token: dict = Depends(verify_token)):
     from backend.routes.assignment import accept_assignment_endpoint
     return accept_assignment_endpoint(assignment_id, payload, token=token)
 
+
 @app.patch("/assignments/{assignment_id}/progress")
 def update_assignment_progress_alias(assignment_id: str, payload: Optional[dict] = None, token: dict = Depends(verify_token)):
     from backend.routes.assignment import update_assignment_progress_endpoint
     return update_assignment_progress_endpoint(assignment_id, payload, token=token)
+
 
 @app.patch("/assignments/{assignment_id}/dispatch")
 def confirm_dispatch_alias(assignment_id: str, payload: Optional[dict] = None, token: dict = Depends(verify_token)):
     from backend.routes.assignment import confirm_dispatch_endpoint
     return confirm_dispatch_endpoint(assignment_id, payload, token=token)
 
+
 @app.patch("/assignments/{assignment_id}/resolve")
 def resolve_assignment_alias(assignment_id: str, token: dict = Depends(verify_token)):
     from backend.routes.assignment import resolve
     return resolve(assignment_id, token=token)
+
 
 from fastapi.staticfiles import StaticFiles
 if os.path.isdir("frontendnew"):

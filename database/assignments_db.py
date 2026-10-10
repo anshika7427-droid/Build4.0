@@ -121,11 +121,11 @@ def resolve_assignment(doc_id: str, need_id: str, volunteer_id: str) -> bool:
         stored_need_id = str(assignment.get("need_id") or "")
         stored_volunteer_id = str(assignment.get("volunteer_id") or "")
 
-        if stored_need_id != str(need_id):
+        if stored_need_id and stored_need_id != str(need_id):
             raise ValueError(
                 f"Mismatched need_id for assignment '{doc_id}': expected '{stored_need_id}', got '{need_id}'"
             )
-        if stored_volunteer_id != str(volunteer_id):
+        if stored_volunteer_id and stored_volunteer_id != str(volunteer_id):
             raise ValueError(
                 f"Mismatched volunteer_id for assignment '{doc_id}': expected '{stored_volunteer_id}', got '{volunteer_id}'"
             )

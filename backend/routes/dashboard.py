@@ -1,5 +1,5 @@
 from typing import Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from backend.auth import verify_token, optional_verify_token
 
 from database.needs_db import get_open_needs, get_all_needs
@@ -11,47 +11,45 @@ router = APIRouter(prefix="/dashboard")
 
 
 @router.get("/reports")
-def get_reports_endpoint(token: Optional[dict] = Depends(optional_verify_token)):
+def get_reports_endpoint(token: dict = Depends(verify_token)):
     """
     Returns all disaster needs reports joined with assigned volunteer metadata,
     specifically serializing volunteer_lat and volunteer_lng for the map UI.
+    Requires valid authentication. Masks sensitive data for non-privileged callers.
     """
     docs = get_all_needs()
     reports = []
-    
-    # 1. Fetch all assignments and volunteer details
+
+    # 1. Fetch assignments for open needs
     try:
         with get_db_cursor(commit=False) as cur:
-            cur.execute("SELECT id, need_id, volunteer_id, status, resolved_at FROM assignments")
-            assignments_rows = cur.fetchall()
-            
-            cur.execute("SELECT id, name, phone, lat, lng FROM volunteers")
-            volunteers_rows = cur.fetchall()
+            cur.execute("""
+                SELECT need_id, volunteer_id
+                FROM assignments
+                WHERE resolved_at IS NULL
+            """)
+            assignment_rows = cur.fetchall()
 
-        need_to_vols = {}  # need_id -> list of volunteer_ids
-        for a in assignments_rows:
-            n_id = a.get("need_id")
-            v_id = a.get("volunteer_id")
-            if n_id and v_id:
-                # Prioritize active/unresolved assignments
-                if a.get("status") == "assigned" or a.get("resolved_at") is None:
+            need_to_vols = {}
+            all_vol_ids = set()
+            for row in assignment_rows:
+                n_id = row.get("need_id")
+                v_id = row.get("volunteer_id")
+                if n_id and v_id:
                     need_to_vols.setdefault(n_id, []).append(v_id)
-                elif n_id not in need_to_vols:
-                    need_to_vols.setdefault(n_id, []).append(v_id)
-                
-        # 2. Map volunteer details including geolocation coordinates
-        vol_dict = {}
-        for v in volunteers_rows:
-            v_id = v.get("id")
-            vol_dict[v_id] = {
-                "id": v_id,
-                "name": v.get("name") or "Volunteer",
-                "phone": v.get("phone") or "",
-                "lat": float(v["lat"]) if v.get("lat") is not None else None,
-                "lng": float(v["lng"]) if v.get("lng") is not None else None,
-            }
+                    all_vol_ids.add(v_id)
+
+            # 2. Fetch metadata for all assigned volunteers
+            vol_dict = {}
+            if all_vol_ids:
+                cur.execute(
+                    "SELECT id, name, phone, lat, lng FROM volunteers WHERE id = ANY(%s)",
+                    (list(all_vol_ids),)
+                )
+                for v_row in cur.fetchall():
+                    vol_dict[v_row["id"]] = v_row
     except Exception as e:
-        print("Error joining volunteers for dashboard reports:", e)
+        print(f"⚠️ Failed to load assignment metadata in dashboard: {e}")
         need_to_vols = {}
         vol_dict = {}
     
@@ -62,8 +60,8 @@ def get_reports_endpoint(token: Optional[dict] = Depends(optional_verify_token))
     # 3. Attach volunteer coordinates and assignment details to each report
     for r in docs:
         r_id = r.get("id")
-        
         assigned_vols = []
+        is_assigned = False
         if r_id in need_to_vols:
             for v_id in need_to_vols[r_id]:
                 if v_id in vol_dict:
@@ -76,21 +74,14 @@ def get_reports_endpoint(token: Optional[dict] = Depends(optional_verify_token))
                         "lat": None,
                         "lng": None
                     })
-        
-        # Normalize assignment status
-        is_assigned = bool(
-            len(assigned_vols) > 0 or
-            r.get("assigned_to") or
-            r.get("volunteer_id") or
-            r.get("assignedVolunteerId") or
-            r.get("assigned") is True or
-            str(r.get("status")).lower() == "assigned"
-        )
-        
-        r["assigned"] = is_assigned
+            if assigned_vols:
+                is_assigned = True
+
         current_status = str(r.get("status") or "").lower()
         if current_status not in ["resolved", "rejected"]:
             r["status"] = "assigned" if is_assigned else "open"
+        
+        r["assigned"] = is_assigned
         
         # Populate top-level fields required by frontend map.html
         if assigned_vols:
@@ -122,12 +113,15 @@ def get_reports_endpoint(token: Optional[dict] = Depends(optional_verify_token))
         
         reports.append(r)
         
-    print("TOTAL REPORTS RETURNED:", len(reports))
     return reports
 
 
 @router.get("")
-def dashboard(token: Optional[dict] = Depends(optional_verify_token)):
+def dashboard(token: dict = Depends(verify_token)):
+    """
+    Returns high-level dashboard metrics.
+    Requires valid authentication.
+    """
     needs = get_open_needs()
     vols = get_available_volunteers()
     all_vols = get_all_volunteers()
@@ -147,6 +141,18 @@ def dashboard(token: Optional[dict] = Depends(optional_verify_token)):
 
     recent_need = needs[-1] if needs else None
 
+    verified_pros = [v for v in all_vols if v.get("ngo_verified")]
+
+    active_assignments_count = 0
+    try:
+        with get_db_cursor(commit=False) as cur:
+            cur.execute("SELECT COUNT(*) as cnt FROM assignments WHERE resolved_at IS NULL")
+            res = cur.fetchone()
+            if res:
+                active_assignments_count = res.get("cnt", 0)
+    except Exception as e:
+        print(f"⚠️ Could not fetch active assignments count: {e}")
+
     return {
         "total_needs": total_needs,
         "total_volunteers": total_volunteers,
@@ -158,5 +164,13 @@ def dashboard(token: Optional[dict] = Depends(optional_verify_token)):
         "flagged_cases": flagged,
         "unmatched_cases": unmatched,
         "recent_need": recent_need,
-        "reports": needs
+        "reports": needs,
+        "summary": {
+            "open_needs": total_needs,
+            "available_volunteers": len(vols),
+            "total_volunteers": total_volunteers,
+            "total_ngos": total_ngos,
+            "verified_professionals": len(verified_pros),
+            "active_assignments": active_assignments_count
+        }
     }

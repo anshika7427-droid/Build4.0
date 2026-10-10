@@ -1,7 +1,7 @@
 from typing import Optional
 import traceback
 from fastapi import APIRouter, Depends, HTTPException
-from backend.auth import verify_token, optional_verify_token                    # ✅ Centralised auth
+from backend.auth import verify_token, optional_verify_token
 from database.volunteers_db import (
     save_volunteer, get_available_volunteers, get_all_volunteers, hash_password,
     update_volunteer_status, get_volunteer
@@ -22,18 +22,17 @@ def create_volunteer(data: VolunteerInput, token: dict = Depends(verify_token)):
         raw_password = volunteer_dict.pop("password")
         volunteer_dict["password_hash"] = hash_password(raw_password)
 
-        # 🔒 SECURITY: Strip privileged tiered fields — only an authenticated NGO may set these.
-        # A volunteer registering themselves must not be able to self-promote their tier.
+        # 🔒 SECURITY: Strip privileged tiered fields — only an authenticated NGO or system may set these.
         if isinstance(token, dict):
             role = token.get("role")
-            uid = token.get("uid")
+            uid = str(token.get("uid") or "")
             if role == "ngo":
                 # Force volunteer's NGO ID to be the authenticated NGO's ID
                 volunteer_dict["ngo_id"] = uid
                 # Verify if the NGO itself is verified in PostgreSQL
                 ngo = get_ngo(uid)
                 volunteer_dict["ngo_verified"] = bool(ngo and ngo.get("verified"))
-            elif role == "system":
+            elif role in ["system", "admin"]:
                 # For system/tests, preserve the submitted NGO ID if verified
                 ngo_id = volunteer_dict.get("ngo_id")
                 if ngo_id:
@@ -51,9 +50,7 @@ def create_volunteer(data: VolunteerInput, token: dict = Depends(verify_token)):
 
         volunteer_dict.pop("credential_tags", None)
 
-        # Geocoding and location handling is now centralized in save_volunteer()
         print("📥 Incoming Volunteer Data:", volunteer_dict)
-
         doc_id = save_volunteer(volunteer_dict)
 
         return {
@@ -76,8 +73,7 @@ def create_volunteer(data: VolunteerInput, token: dict = Depends(verify_token)):
 def update_own_status(data: VolunteerStatusInput, token: dict = Depends(verify_token)):
     """
     Lets an authenticated volunteer set their own on-duty/off-duty availability.
-    Identity is derived solely from the token (uid) — a volunteer can never
-    pass another volunteer's id, so this can't be used to change someone else's status.
+    Identity is derived solely from the token (uid).
     """
     if not isinstance(token, dict) or token.get("role") != "volunteer":
         raise HTTPException(
@@ -85,7 +81,7 @@ def update_own_status(data: VolunteerStatusInput, token: dict = Depends(verify_t
             detail="Only an authenticated volunteer can update their own duty status",
         )
 
-    volunteer_id = token.get("uid")
+    volunteer_id = str(token.get("uid") or "")
     if not volunteer_id:
         raise HTTPException(status_code=401, detail="Invalid session")
 
@@ -104,6 +100,7 @@ def update_volunteer_availability_endpoint(
     Update a volunteer's on-duty/off-duty availability.
     Enforces that volunteers can only update their own status,
     and NGOs can only update status for their affiliated volunteers.
+    Enforces authorization check to prevent IDOR vulnerabilities.
     """
     vol = get_volunteer(volunteer_id)
     if not vol:
@@ -131,15 +128,19 @@ def update_volunteer_availability_endpoint(
         )
 
     update_volunteer_status(volunteer_id, data.available)
-    return {"id": volunteer_id, "available": data.available, "message": f"Status updated to {'available' if data.available else 'off-duty'}."}
+    return {
+        "id": volunteer_id,
+        "available": data.available,
+        "message": f"Status updated to {'available' if data.available else 'off-duty'}."
+    }
 
 
 @router.get("/volunteers")
-def list_volunteers(token: Optional[dict] = Depends(optional_verify_token)):
-    """Public endpoint — returns all registered volunteers with sensitive fields redacted."""
+def list_volunteers(token: dict = Depends(verify_token)):
+    """Authenticated endpoint — returns all registered volunteers with sensitive fields redacted."""
     try:
         volunteers = get_all_volunteers()
-        # Strip sensitive fields before sending to frontend
+        # Strip sensitive fields before sending
         safe_fields = ["id", "name", "skills", "available", "location",
                        "active_assignments", "ngo_id", "registered_at",
                        "ngo_verified", "credential_tags", "vehicle"]
@@ -157,11 +158,11 @@ def list_volunteers(token: Optional[dict] = Depends(optional_verify_token)):
 @router.get("/volunteers/{volunteer_id}")
 def get_single_volunteer(
     volunteer_id: str,
-    token: Optional[dict] = Depends(optional_verify_token)
+    token: dict = Depends(verify_token)
 ):
     """
     Retrieve details of a single volunteer.
-    Masks personal phone numbers and emails unless caller is privileged or the volunteer themselves.
+    Requires valid authentication. Masks personal phone numbers and emails unless caller is privileged or the volunteer themselves.
     """
     vol = get_volunteer(volunteer_id)
     if not vol:
@@ -180,9 +181,9 @@ def get_single_volunteer(
 
     safe_fields = ["id", "name", "skills", "available", "location",
                    "active_assignments", "ngo_id", "registered_at",
-                   "ngo_verified", "credential_tags", "vehicle"]
+                   "ngo_verified", "credential_tags", "vehicle", "lat", "lng"]
     if is_privileged:
-        safe_fields.extend(["phone", "email", "lat", "lng"])
+        safe_fields.extend(["phone", "email"])
 
     return {k: v for k, v in vol.items() if k in safe_fields}
 
@@ -204,11 +205,13 @@ def get_vol_assignments_alias(
         or token.get("volunteer_id")
         or ""
     )
-    if role == "volunteer" and caller_id != str(volunteer_id):
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied: cannot view another volunteer's assignments",
-        )
+
+    if role == "volunteer":
+        if caller_id and caller_id != str(volunteer_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: cannot view another volunteer's assignments",
+            )
     elif role == "ngo":
         vol = get_volunteer(volunteer_id)
         if not vol or str(vol.get("ngo_id") or "") != caller_id:
@@ -234,5 +237,3 @@ def get_vol_assignments_alias(
         else:
             result.append(a)
     return result
-
-

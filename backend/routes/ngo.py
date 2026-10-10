@@ -13,7 +13,7 @@ router = APIRouter(prefix="/ngo", tags=["NGO"])
 
 @router.post("/{ngo_id}/inventory")
 def set_ngo_inventory_endpoint(ngo_id: str, data: NGOInventoryInput, token: dict = Depends(verify_token)):
-    """Set or update NGO inventory stock capacity."""
+    """Set or update NGO inventory stock capacity. Requires auth and ownership check."""
     role = token.get("role")
     uid = str(token.get("uid") or "")
 
@@ -35,8 +35,17 @@ def set_ngo_inventory_endpoint(ngo_id: str, data: NGOInventoryInput, token: dict
 
 
 @router.get("/{ngo_id}/inventory")
-def get_ngo_inventory_endpoint(ngo_id: str):
-    """Retrieve inventory for an NGO."""
+def get_ngo_inventory_endpoint(ngo_id: str, token: dict = Depends(verify_token)):
+    """Retrieve inventory for an NGO. Requires auth and ownership check."""
+    role = token.get("role")
+    uid = str(token.get("uid") or "")
+
+    if role == "ngo":
+        if uid != str(ngo_id):
+            raise HTTPException(status_code=403, detail="Access denied: cannot view another NGO's inventory")
+    elif role not in ["system", "admin", "coordinator"]:
+        raise HTTPException(status_code=403, detail="Access denied: insufficient permissions to view NGO inventory")
+
     items = get_ngo_inventory(ngo_id)
     return {"ngo_id": ngo_id, "inventory": items}
 
@@ -50,11 +59,9 @@ def list_ngos():
                        "phone", "verified", "registered_at", "region"]
         sanitized = []
         for ngo in ngos:
-            # Map legacy data to new fields
             ngo_name = ngo.get("ngo_name")
             owner_name = ngo.get("owner_name")
             
-            # --- AUTO-MIGRATE ON READ (as requested by user to fix DB) ---
             if not ngo_name:
                 ngo_name = "Helping Hands Foundation"
                 owner_name = ngo.get("name", "Admin")
@@ -64,12 +71,9 @@ def list_ngos():
                             "UPDATE ngos SET ngo_name = %s, owner_name = %s WHERE id = %s",
                             (ngo_name, owner_name, ngo["id"])
                         )
-                    print(f"🔧 Backfilled NGO {ngo['id']} with {ngo_name}")
                 except Exception as e:
                     print(f"⚠️ Could not backfill NGO {ngo['id']}: {e}")
-            # -------------------------------------------------------------
             
-            # Combine to the expected structured format
             sanitized_ngo = {k: v for k, v in ngo.items() if k in safe_fields}
             sanitized_ngo["ngo_name"] = ngo_name
             sanitized_ngo["owner_name"] = owner_name
@@ -77,10 +81,6 @@ def list_ngos():
             sanitized_ngo.setdefault("email", ngo.get("email", ""))
             sanitized_ngo.setdefault("description", ngo.get("description", ""))
             sanitized.append(sanitized_ngo)
-
-        print(f"✅ Returned {len(sanitized)} structured NGOs")
-        if sanitized:
-            print(f"Sample NGO: {sanitized[0]}")
 
         return {"ok": True, "data": sanitized}
     except Exception as e:
@@ -92,20 +92,16 @@ def list_ngos():
 async def register_ngo(request: Request):
     """Webhook/Forms endpoint for NGO registration"""
     try:
-        # Get raw data first to prevent 422 crash before we can log it
         try:
             raw_data = await request.json()
         except Exception:
-            # If Google form sends form data instead of JSON
             form_data = await request.form()
             raw_data = dict(form_data)
             
         print(f"📥 RAW NGO Registration payload: {raw_data}", flush=True)
 
-        # Parse with Pydantic model (with our forgiving aliases)
         data = NGOInput(**raw_data)
         
-        # Check duplicate email if email is provided
         if data.email:
             clean_email = data.email.strip().lower()
             existing = get_ngo_by_email(clean_email)
@@ -131,13 +127,12 @@ async def register_ngo(request: Request):
         raise
     except Exception as e:
         print("❌ NGO Registration Error:", e, flush=True)
-        # Returning 200 even on error prevents Google Forms from indefinitely retrying the webhook
         return {"error": str(e), "message": "Failed but intercepted"}
 
 
 @router.get("/{ngo_id}")
-def get_ngo_details(ngo_id: str):
-    """Retrieve details of an NGO"""
+def get_ngo_details(ngo_id: str, token: Optional[dict] = Depends(optional_verify_token)):
+    """Retrieve details of an NGO."""
     ngo = get_ngo(ngo_id)
     if not ngo:
         raise HTTPException(status_code=404, detail="NGO not found")
@@ -148,20 +143,19 @@ def get_ngo_details(ngo_id: str):
 def get_ngo_dashboard(ngo_id: str, token: dict = Depends(verify_token)):
     ngo = get_ngo(ngo_id)
     
-    if isinstance(token, dict):
-        role = token.get("role")
-        uid = token.get("uid")
-        if role == "ngo" and uid != ngo_id:
-            raise HTTPException(status_code=403, detail="Access denied: cannot view another NGO's dashboard")
-        elif role == "volunteer":
-            # Check if volunteer is affiliated with this NGO
-            with get_db_cursor(commit=False) as cur:
-                cur.execute("SELECT ngo_id FROM volunteers WHERE id = %s", (uid,))
-                row = cur.fetchone()
-            if not row or row.get("ngo_id") != ngo_id:
-                raise HTTPException(status_code=403, detail="Access denied: not affiliated with this NGO")
-        elif role not in ["system", "ngo", "volunteer"]:
-            raise HTTPException(status_code=403, detail="Access denied: unauthorized role")
+    role = token.get("role")
+    uid = str(token.get("uid") or "")
+
+    if role == "ngo" and uid != str(ngo_id):
+        raise HTTPException(status_code=403, detail="Access denied: cannot view another NGO's dashboard")
+    elif role == "volunteer":
+        with get_db_cursor(commit=False) as cur:
+            cur.execute("SELECT ngo_id FROM volunteers WHERE id = %s", (uid,))
+            row = cur.fetchone()
+        if not row or str(row.get("ngo_id") or "") != str(ngo_id):
+            raise HTTPException(status_code=403, detail="Access denied: not affiliated with this NGO")
+    elif role not in ["system", "admin", "ngo", "volunteer", "coordinator"]:
+        raise HTTPException(status_code=403, detail="Access denied: unauthorized role")
 
     if not ngo:
         raise HTTPException(status_code=404, detail="NGO not found")
@@ -248,8 +242,16 @@ def get_ngo_dashboard(ngo_id: str, token: dict = Depends(verify_token)):
 
 
 @router.get("/{ngo_id}/needs")
-def get_ngo_needs(ngo_id: str):
-    """Retrieve needs associated with or allocated to this NGO."""
+def get_ngo_needs(ngo_id: str, token: dict = Depends(verify_token)):
+    """Retrieve needs associated with or allocated to this NGO. Requires auth."""
+    role = token.get("role")
+    uid = str(token.get("uid") or "")
+
+    if role == "ngo" and uid != str(ngo_id):
+        raise HTTPException(status_code=403, detail="Access denied: cannot view another NGO's needs")
+    elif role not in ["system", "admin", "ngo", "coordinator"]:
+        raise HTTPException(status_code=403, detail="Access denied: unauthorized role")
+
     with get_db_cursor(commit=False) as cur:
         cur.execute("""
             SELECT n.*, a.allocated_quantity, a.status as allocation_status
@@ -260,7 +262,6 @@ def get_ngo_needs(ngo_id: str):
         allocated = cur.fetchall()
 
         if not allocated:
-            # Fallback: check open needs matching this NGO's inventory types
             cur.execute("SELECT DISTINCT LOWER(resource_type) as r_type FROM ngo_inventory WHERE ngo_id = %s", (ngo_id,))
             types = [r["r_type"] for r in cur.fetchall()]
             if types:
@@ -277,9 +278,10 @@ def get_ngo_needs(ngo_id: str):
 
 @router.get("/{ngo_id}/dispatches")
 def get_ngo_dispatches(ngo_id: str, token: dict = Depends(verify_token)):
-    """Retrieve active and historical dispatches for this NGO."""
+    """Retrieve active and historical dispatches for this NGO. Requires auth."""
     role = token.get("role")
     uid = str(token.get("uid") or "")
+
     if role == "ngo":
         if uid != str(ngo_id):
             raise HTTPException(status_code=403, detail="Access denied: cannot view another NGO's dispatches")

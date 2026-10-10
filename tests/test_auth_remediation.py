@@ -242,7 +242,31 @@ class TestAuthRemediation(unittest.TestCase):
         ]
         mock_db_cursor.return_value.__enter__.return_value = mock_cur
 
-        resp = self.client.get("/dashboard/reports")
+        # Unauthenticated request returns 401 under JWT auth
+        resp_unauth = self.client.get("/dashboard/reports")
+        self.assertEqual(resp_unauth.status_code, 401)
+
+        mock_get_needs.return_value = [
+            {
+                "id": "need_1",
+                "reporter_name": "Citizen In Distress",
+                "reporter_phone": "+91 9999911111",
+                "location_text": "Camp Alpha",
+                "description": "Flooding",
+                "lat": 11.6854,
+                "lng": 76.1320
+            }
+        ]
+        mock_cur = MagicMock()
+        mock_cur.fetchall.side_effect = [
+            # assignments
+            [{"id": "asgn_1", "need_id": "need_1", "volunteer_id": "vol_1", "status": "assigned", "resolved_at": None}],
+            # volunteers
+            [{"id": "vol_1", "name": "Medic One", "phone": "+91 8888822222", "lat": 11.6890, "lng": 76.1350}]
+        ]
+        mock_db_cursor.return_value.__enter__.return_value = mock_cur
+
+        resp = self.client.get("/dashboard/reports", headers=self.vol_a_headers)
         self.assertEqual(resp.status_code, 200)
         reports = resp.json()
         self.assertGreater(len(reports), 0)
@@ -263,7 +287,10 @@ class TestAuthRemediation(unittest.TestCase):
 
     @patch("backend.routes.volunteer.get_volunteer")
     def test_get_single_volunteer_masks_contact_for_unauthenticated_callers(self, mock_get_vol):
-        """Unauthenticated GET /volunteer/{id} must not return personal phone or email."""
+        """Unauthenticated GET /volunteer/{id} returns 401 under strict JWT auth, and non-privileged token masks contact details."""
+        resp_unauth = self.client.get("/volunteer/vol_1")
+        self.assertEqual(resp_unauth.status_code, 401)
+
         mock_get_vol.return_value = {
             "id": "vol_1",
             "name": "Jane Responder",
@@ -273,7 +300,7 @@ class TestAuthRemediation(unittest.TestCase):
             "available": True,
             "location": "Sector 4"
         }
-        resp = self.client.get("/volunteer/vol_1")
+        resp = self.client.get("/volunteer/vol_1", headers=self.vol_a_headers)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
 

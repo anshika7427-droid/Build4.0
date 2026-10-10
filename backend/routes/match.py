@@ -28,7 +28,6 @@ _SENSITIVE_KEYWORDS = {
     "rescue", "cpr", "unconscious", "casualty", "casualties", "first-aid", "first aid"
 }
 
-# Canonical skill mappings to standard emergency domains
 SKILL_MAP = {
     "medical": {
         "medical", "first-aid", "first aid", "doctor", "nurse", "paramedic",
@@ -56,12 +55,20 @@ SKILL_MAP = {
 }
 
 MAX_DISPATCH_KM = 50.0
-AVAILABILITY_PENALTY = 30  # deducted for recently assigned / unavailable volunteer
+AVAILABILITY_PENALTY = 30
 
 
-# ---------------------------------------------------------------------------
-# Haversine distance helper
-# ---------------------------------------------------------------------------
+def _require_ngo_or_system_role(token: dict):
+    if not isinstance(token, dict):
+        raise HTTPException(status_code=401, detail="Invalid authentication token format.")
+    role = token.get("role")
+    if role not in ["system", "ngo", "admin", "coordinator"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: only NGOs or system administrators can perform matching or allocation operations"
+        )
+
+
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     R = 6371
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
@@ -72,46 +79,30 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-# ---------------------------------------------------------------------------
-# Sensitive Case Classification & Safe Fallback
-# ---------------------------------------------------------------------------
 def is_sensitive_case(need: dict) -> bool:
-    """
-    Determines whether a need is a sensitive / high-risk case requiring Tier 1.
-    If classification is missing, 'Not Specified', unknown, or ambiguous,
-    fails safely by enforcing Tier 1 verification.
-    """
     raw_category = str(need.get("category") or "").strip().lower()
     raw_help = str(need.get("help_needed") or "").strip().lower()
     raw_disaster = str(need.get("disaster_type") or "").strip().lower()
     raw_desc = str(need.get("description") or "").strip().lower()
 
-    # 1. Direct match on sensitive categories
     if raw_category in _SENSITIVE_CATEGORIES or raw_help in _SENSITIVE_CATEGORIES:
         return True
 
-    # 2. Check for high-risk disaster keywords in text/disaster type/category
     combined_text = f"{raw_category} {raw_help} {raw_disaster} {raw_desc}"
     if any(keyword in combined_text for keyword in _SENSITIVE_KEYWORDS):
         return True
 
-    # 3. Check for missing or uncertain classification -> FAIL SAFELY to Tier 1
     unspecified_values = {"", "not specified", "unknown", "none", "null", "undefined", "n/a", "other"}
     category_specified = raw_category not in unspecified_values
     help_specified = raw_help not in unspecified_values
 
-    # If neither category nor help_needed is clearly specified, fail safely to Tier 1
     if not category_specified and not help_specified:
         return True
 
     return False
 
 
-# ---------------------------------------------------------------------------
-# Skill Compatibility Matching
-# ---------------------------------------------------------------------------
 def get_canonical_category(need: dict) -> str:
-    """Extract canonical need category from need object."""
     cat = str(need.get("category") or "").strip().lower()
     if cat in SKILL_MAP:
         return cat
@@ -133,10 +124,6 @@ def get_canonical_category(need: dict) -> str:
 
 
 def is_skill_compatible(need: dict, volunteer: dict) -> bool:
-    """
-    Checks if a volunteer's skills are compatible with the emergency need.
-    A volunteer without relevant skills will not be matched.
-    """
     raw_skills = volunteer.get("skills") or []
     if isinstance(raw_skills, str):
         raw_skills = [raw_skills]
@@ -146,7 +133,6 @@ def is_skill_compatible(need: dict, volunteer: dict) -> bool:
         return False
 
     sensitive = is_sensitive_case(need)
-    # General wildcard skills only permitted for non-sensitive cases
     if ("all" in v_skills or "general" in v_skills) and not sensitive:
         return True
 
@@ -160,7 +146,6 @@ def is_skill_compatible(need: dict, volunteer: dict) -> bool:
                 return True
         return False
 
-    # Fallback to direct field matching
     need_fields = [
         str(need.get("category") or "").lower(),
         str(need.get("help_needed") or "").lower(),
@@ -173,18 +158,7 @@ def is_skill_compatible(need: dict, volunteer: dict) -> bool:
     return False
 
 
-# ---------------------------------------------------------------------------
-# Composite-score volunteer selection
-# ---------------------------------------------------------------------------
 def _compute_score(need: dict, volunteer: dict) -> tuple[float, float]:
-    """
-    Returns (score, distance_km).
-
-    score = (severity_weight / (distance_km + 1)) + tier_bonus - availability_penalty
-
-    • tier_bonus        = +50  if NGO-verified (Tier 1)
-    • availability_penalty = +30 deducted if volunteer.available is False
-    """
     severity = str(need.get("severity") or "medium").lower()
     weight   = SEVERITY_WEIGHT.get(severity, 80)
 
@@ -202,11 +176,6 @@ def _compute_score(need: dict, volunteer: dict) -> tuple[float, float]:
 
 
 def find_best_volunteer(need: dict, all_volunteers: list) -> dict | None:
-    """
-    Returns the highest-scoring eligible and skill-compatible volunteer,
-    or None if no suitable candidate exists.
-    """
-    # Step 1: Availability filter
     available = [
         v for v in all_volunteers
         if v.get("available", True) and (v.get("active_assignments") or 0) < 3
@@ -214,22 +183,19 @@ def find_best_volunteer(need: dict, all_volunteers: list) -> dict | None:
     if not available:
         return None
 
-    # Step 2: Skill compatibility filter (Strict: no fallback to incompatible volunteers)
     skilled = [v for v in available if is_skill_compatible(need, v)]
     if not skilled:
         return None
 
-    # Step 3: Tier enforcement for sensitive/uncertain categories
     sensitive = is_sensitive_case(need)
     if sensitive:
         tier1_pool = [v for v in skilled if v.get("ngo_verified") is True]
         if not tier1_pool:
-            return None  # Hard block: sensitive cases require Tier 1
+            return None
         pool = tier1_pool
     else:
         pool = skilled
 
-    # Step 4: Distance & composite scoring
     scored = []
     for v in pool:
         score, dist_km = _compute_score(need, v)
@@ -247,29 +213,13 @@ def find_best_volunteer(need: dict, all_volunteers: list) -> dict | None:
     return result
 
 
-# ---------------------------------------------------------------------------
-# Main match route — global priority ordering
-# ---------------------------------------------------------------------------
 @router.get("")
 def match_needs(token: dict = Depends(verify_token)):
-    """
-    Runs the global priority matching pass:
-    1. Sort all open needs by severity (critical first).
-    2. Enforce skill compatibility, availability, and Tier 1 verification.
-    3. Assign the best available volunteer(s) to each need in order.
-    4. Track used volunteers so no volunteer is double-dispatched in the same run.
-    """
-    if isinstance(token, dict):
-        if token.get("role") not in ["system", "ngo"]:
-            raise HTTPException(
-                status_code=403,
-                detail="Access denied: only NGOs or system administrators can trigger matching"
-            )
+    """Runs global priority matching pass. Requires NGO or System role."""
+    _require_ngo_or_system_role(token)
             
     open_needs = get_open_needs()
 
-
-    # Sort needs by severity weight (descending) for global priority dispatch
     open_needs.sort(
         key=lambda n: SEVERITY_ORDER.get(str(n.get("severity", "low")).lower(), 4)
     )
@@ -282,9 +232,8 @@ def match_needs(token: dict = Depends(verify_token)):
         trust = need.get("trust_score", 100)
         severity = (need.get("severity") or "low").lower()
 
-        # Smart trust gating
         if severity in ["critical", "very high"]:
-            pass  # always allow high severity
+            pass
         elif trust < 50:
             continue
 
@@ -292,7 +241,6 @@ def match_needs(token: dict = Depends(verify_token)):
         need_category = str(need.get("category") or need.get("help_needed") or "").lower()
         sensitive = is_sensitive_case(need)
 
-        # Available pool = not already assigned in this run & available in DB
         available_pool = [
             v for v in all_volunteers
             if v.get("id") not in assigned_volunteer_ids
@@ -300,7 +248,6 @@ def match_needs(token: dict = Depends(verify_token)):
             and (v.get("active_assignments") or 0) < 3
         ]
 
-        # Skill filtering
         skilled_pool = [v for v in available_pool if is_skill_compatible(need, v)]
 
         if sensitive:
@@ -387,26 +334,14 @@ def match_needs(token: dict = Depends(verify_token)):
     }
 
 
-# ---------------------------------------------------------------------------
-# Debug endpoint — for demo transparency
-# ---------------------------------------------------------------------------
 @router.get("/debug/{need_id}")
 def debug_match(need_id: str, token: dict = Depends(verify_token)):
-    """
-    Returns a full score breakdown for every available volunteer against a
-    specific need. Use this to explain matching decisions during the demo.
-    """
-    if isinstance(token, dict):
-        if token.get("role") not in ["system", "ngo"]:
-            raise HTTPException(
-                status_code=403,
-                detail="Access denied: only NGOs or system administrators can view match debug breakdowns"
-            )
+    """Returns match debug breakdown for a specific need. Requires NGO or System role."""
+    _require_ngo_or_system_role(token)
 
     need = get_need_by_id(need_id)
     if not need:
         raise HTTPException(status_code=404, detail=f"Need '{need_id}' not found.")
-
 
     all_volunteers = get_available_volunteers()
     sensitive = is_sensitive_case(need)
@@ -450,9 +385,6 @@ def debug_match(need_id: str, token: dict = Depends(verify_token)):
     }
 
 
-# ---------------------------------------------------------------------------
-# Capacity Allocation & Full Coordination Endpoints
-# ---------------------------------------------------------------------------
 @router.post("/allocate/{need_id}")
 def allocate_need_ngos(need_id: str, token: dict = Depends(verify_token)):
     """
@@ -460,12 +392,7 @@ def allocate_need_ngos(need_id: str, token: dict = Depends(verify_token)):
     Supports multi-NGO partial fulfillment (e.g., 200 meals = 120 + 80).
     Requires NGO, coordinator, or system role.
     """
-    role = token.get("role")
-    if role not in ["system", "ngo", "admin", "coordinator"]:
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied: only NGOs or coordinators can trigger inventory allocation"
-        )
+    _require_ngo_or_system_role(token)
     try:
         result = allocate_ngos_for_need(need_id)
         return {"status": "success", "data": result}
@@ -483,23 +410,17 @@ def coordinate_need(need_id: str, token: dict = Depends(verify_token)):
     2. Match and assign an eligible verified volunteer for last-mile delivery.
     Requires NGO, coordinator, or system role.
     """
-    role = token.get("role")
-    if role not in ["system", "ngo", "admin", "coordinator"]:
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied: only NGOs or coordinators can trigger emergency coordination"
-        )
+    _require_ngo_or_system_role(token)
+
     need = get_need_by_id(need_id)
     if not need:
         raise HTTPException(status_code=404, detail=f"Need '{need_id}' not found")
 
-    # Step 1: Allocate NGO capacity
     try:
         allocation_result = allocate_ngos_for_need(need_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"NGO inventory allocation failed: {e}")
 
-    # Step 2: Match verified volunteer
     all_volunteers = get_available_volunteers()
     best_volunteer = find_best_volunteer(need, all_volunteers)
 
