@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+google-genai
+python-dotenv
+requests
+slowapi
+bcrypt
+psycopg2-binary
+googlemaps
+passlib[bcrypt]
+PyJWT
+python-multipart
+pytest
+pytest-asyncio
