@@ -25,6 +25,8 @@ from backend.services.ai import (
     _normalize_extraction,
     _extract_json_text,
     _fetch_tinyfish_context,
+    _construct_tinyfish_query,
+    should_trigger_tinyfish,
 )
 from backend.models import NeedInput
 from backend.routes.need import process_and_save_need
@@ -328,3 +330,157 @@ class TestDeterministicSeverityAndExtraction:
         assert res.get("error") == "empty input"
         mock_groq.assert_not_called()
         mock_gemini.assert_not_called()
+
+
+class TestTinyFishIntegration:
+    """Detailed verification suite for TinyFish Search API integration and invocation criteria."""
+
+    def test_conditional_invocation_low_severity_routine_complete_skipped(self):
+        pre_eval = {
+            "severity": "low",
+            "urgency": "low",
+            "quantity": 50,
+            "location_entity": "Kanpur shelter",
+            "category": "supplies",
+        }
+        res = should_trigger_tinyfish("Need 50 blankets at Kanpur shelter", pre_eval=pre_eval)
+        assert res is False
+
+    def test_conditional_invocation_medium_severity_uncertain_triggered(self):
+        pre_eval = {
+            "severity": "medium",
+            "urgency": "medium",
+            "quantity": None,
+            "location_entity": None,
+            "category": "supplies",
+        }
+        res = should_trigger_tinyfish("Need food supplies near camp", pre_eval=pre_eval)
+        assert res is True
+
+    def test_conditional_invocation_high_and_critical_triggered(self):
+        pre_eval = {"severity": "critical", "urgency": "critical"}
+        res = should_trigger_tinyfish("Building collapse in Wayanad", pre_eval=pre_eval)
+        assert res is True
+
+    def test_conditional_invocation_credibility_concern_any_severity_triggered(self):
+        pre_eval = {
+            "severity": "low",
+            "quantity": 5,
+            "location_entity": "shelter",
+            "category": "supplies",
+        }
+        res = should_trigger_tinyfish(
+            "Need 5 blankets at shelter", pre_eval=pre_eval, credibility_concern=True
+        )
+        assert res is True
+
+    @patch("backend.services.ai.requests.get")
+    def test_official_api_request_format_and_results_parsing(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "query": "Wayanad flood",
+            "results": [
+                {
+                    "position": 1,
+                    "title": "Wayanad Landslide Update",
+                    "snippet": "Relief camp operating at Higher Secondary School",
+                }
+            ],
+        }
+        mock_get.return_value = mock_resp
+
+        with patch.dict(os.environ, {"TINYFISH_API_KEY": "test_key", "TINYFISH_API_URL": "https://api.search.tinyfish.ai"}):
+            ctx = _fetch_tinyfish_context("Wayanad landslide report", force=True)
+            assert ctx is not None
+            assert "Wayanad Landslide Update" in ctx
+            assert "Relief camp operating at Higher Secondary School" in ctx
+            assert mock_get.called
+            args, kwargs = mock_get.call_args
+            assert args[0] == "https://api.search.tinyfish.ai"
+            assert kwargs["headers"]["X-API-Key"] == "test_key"
+            assert kwargs["params"]["query"] == "Wayanad landslide report"
+
+    @patch("backend.services.ai.requests.post")
+    def test_legacy_api_response_context_parsing(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"context": "Official relief camp announcement"}
+        mock_post.return_value = mock_resp
+
+        with patch.dict(os.environ, {"TINYFISH_API_KEY": "test_key", "TINYFISH_API_URL": "https://api.tinyfish.io/v1/context"}):
+            ctx = _fetch_tinyfish_context("Wayanad landslide report", force=True)
+            assert ctx == "Official relief camp announcement"
+            assert mock_post.called
+
+    def test_pii_sanitization_in_search_query(self):
+        desc = "Need food at Wayanad relief camp. Reporter phone: 9876543210, email: john@example.com"
+        query = _construct_tinyfish_query(desc)
+        assert query == "Need food at Wayanad relief camp"
+        assert "9876543210" not in query
+        assert "john@example.com" not in query
+
+        only_pii = "9876543210 9999999999 john@example.com"
+        assert _construct_tinyfish_query(only_pii) is None
+
+    def test_missing_api_key_and_disabled_flag(self):
+        with patch.dict(os.environ, {"TINYFISH_API_KEY": "", "TINY_FISH_AGENT": ""}, clear=True):
+            assert _fetch_tinyfish_context("Wayanad landslide", force=True) is None
+
+        with patch.dict(os.environ, {"TINYFISH_API_KEY": "key", "DISABLE_TINYFISH": "1"}):
+            assert _fetch_tinyfish_context("Wayanad landslide", force=True) is None
+
+    @patch("backend.services.ai.requests.get")
+    def test_tinyfish_provider_failure_logged_and_returns_none(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.text = "Internal Server Error"
+        mock_get.return_value = mock_resp
+
+        with patch.dict(os.environ, {"TINYFISH_API_KEY": "test_key", "TINYFISH_API_URL": "https://api.search.tinyfish.ai"}):
+            ctx = _fetch_tinyfish_context("Wayanad landslide report", force=True)
+            assert ctx is None
+
+    @patch("backend.services.ai.requests.get")
+    @patch("backend.services.ai._call_groq")
+    def test_critical_request_not_blocked_by_tinyfish_timeout(self, mock_groq, mock_get):
+        import requests
+        mock_get.side_effect = requests.exceptions.Timeout("TinyFish connection timed out")
+        mock_groq.return_value = {
+            "resource_type": "rescue",
+            "quantity": 10,
+            "unit": "people",
+            "location_entity": "Wayanad",
+            "urgency": "critical",
+            "category": "rescue",
+            "severity": "critical",
+            "consistency": 9,
+            "extraction_source": "groq_ai",
+        }
+
+        with patch.dict(os.environ, {"TINYFISH_API_KEY": "test_key", "GROQ_API_KEY": "groq_key", "TINYFISH_API_URL": "https://api.search.tinyfish.ai"}):
+            res = extract_need_ai("Building collapse in Wayanad, 10 people trapped", force_tinyfish=True)
+            assert res["severity"] == "critical"
+            assert res["extraction_source"] == "groq_ai"
+            assert mock_get.called
+            _, kwargs = mock_get.call_args
+            assert kwargs["timeout"] == 1.5
+
+    def test_live_authenticated_tinyfish_request_succeeds(self):
+        agent_key = os.getenv("TINYFISH_API_KEY") or os.getenv("TINY_FISH_AGENT")
+        if not agent_key or os.getenv("DISABLE_TINYFISH"):
+            pytest.skip("No live TinyFish API key configured")
+
+        import requests
+        r = requests.get(
+            "https://api.search.tinyfish.ai",
+            headers={"X-API-Key": agent_key},
+            params={"query": "Wayanad flood"},
+            timeout=5,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, dict)
+        assert "results" in data
+        assert len(data["results"]) > 0
+

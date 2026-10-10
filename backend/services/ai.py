@@ -1,9 +1,13 @@
 import json
+import logging
 import os
 import re
 from typing import Any, Dict, Optional
 import requests
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+
 
 # Try importing Google GenAI SDK if present
 try:
@@ -198,31 +202,218 @@ def _parse_and_validate(raw_response: Any, source: str) -> Dict[str, Any]:
     return _normalize_extraction(parsed, source)
 
 
-def _fetch_tinyfish_context(description: str) -> Optional[str]:
+def _construct_tinyfish_query(description: str, location_text: Optional[str] = None) -> Optional[str]:
     """
-    Adapter for TinyFish API to retrieve relevant external web context
+    Constructs a focused search query using only non-sensitive public event descriptors.
+    Strips phone numbers, email addresses, personal names, and authentication tokens.
+    """
+    text = (description or "").strip()
+    if not text:
+        return None
+
+    # Strip phone numbers (10+ digits or formats like +91-9876543210 or 9876543210)
+    text = re.sub(r'\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b', '', text)
+    text = re.sub(r'\b\d{10,12}\b', '', text)
+
+    # Strip email addresses
+    text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '', text)
+
+    # Strip PII labels and words (phone, contact, reporter, email, mobile, tel, auth, token)
+    text = re.sub(r'\b(?:reporter|contact|phone|mobile|email|tel|auth|token)\s*[:=]?\s*', '', text, flags=re.IGNORECASE)
+
+    # Clean trailing punctuation and extra whitespace
+    cleaned = re.sub(r'\s+', ' ', text).strip()
+    cleaned = re.sub(r'[\s.,;:-]+$', '', cleaned).strip()
+
+    if len(cleaned) < 3:
+        if location_text and len(location_text.strip()) >= 3:
+            cleaned = location_text.strip()
+        else:
+            return None
+
+    return cleaned[:150].strip()
+
+
+def should_trigger_tinyfish(
+    description: str,
+    pre_eval: Optional[Dict[str, Any]] = None,
+    credibility_concern: bool = False,
+    force: bool = False,
+) -> bool:
+    """
+    Evaluates conditional invocation rules for TinyFish web context search:
+
+    1. Low-severity, routine, sufficiently complete requests:
+       Do NOT trigger TinyFish unnecessarily.
+    2. Medium-severity requests:
+       Trigger TinyFish when relevant information is uncertain, unusual,
+       or requires corroboration.
+    3. High, very-high, and critical requests:
+       Trigger TinyFish when external context can materially help verification.
+    4. Credibility concern at ANY severity:
+       Triggers TinyFish if a meaningful public search is possible.
+    5. Missing API key or explicit DISABLE_TINYFISH flag:
+       Returns False.
+    """
+    agent_key = os.getenv("TINYFISH_API_KEY") or os.getenv("TINY_FISH_AGENT")
+    if not agent_key or os.getenv("DISABLE_TINYFISH"):
+        return False
+
+    if force:
+        return True
+
+    cleaned = (description or "").strip()
+    if not cleaned or len(cleaned) < 5:
+        return False
+
+    if pre_eval is None:
+        pre_eval = extract_need_deterministic(cleaned)
+
+    severity = (pre_eval.get("severity") or "medium").lower()
+    urgency = (pre_eval.get("urgency") or severity).lower()
+    consistency = pre_eval.get("consistency")
+    quantity = pre_eval.get("quantity")
+    location_entity = pre_eval.get("location_entity")
+    category = (pre_eval.get("category") or "other").lower()
+
+    # Rule 4: Credibility concern or low consistency score (<= 5)
+    if credibility_concern or (consistency is not None and consistency <= 5):
+        return True
+
+    is_routine_complete = (
+        location_entity is not None
+        and quantity is not None
+        and category in ("supplies", "medical", "logistics")
+        and len(cleaned) < 200
+        and not any(kw in cleaned.lower() for kw in ["unusual", "unconfirmed", "disaster", "outbreak", "collapse", "flooding", "landslide"])
+    )
+
+    # Rule 1: Low severity / routine complete request
+    if severity == "low" or urgency == "low":
+        if is_routine_complete and not credibility_concern:
+            return False
+        if location_entity is None or quantity is None:
+            return len(cleaned) >= 15
+        return False
+
+    # Rule 2: Medium severity
+    if severity == "medium":
+        if is_routine_complete and not credibility_concern:
+            return False
+        is_uncertain = (location_entity is None) or (quantity is None) or (consistency is not None and consistency <= 6)
+        is_unusual_or_disaster = any(kw in cleaned.lower() for kw in [
+            "collapse", "flood", "cyclone", "fire", "quake", "landslide",
+            "storm", "outbreak", "emergency", "unconfirmed", "unusual", "shelter camp", "relief camp"
+        ])
+        if is_uncertain or is_unusual_or_disaster or credibility_concern:
+            return True
+        return False
+
+    # Rule 3: High, Very High, Critical requests
+    if severity in ("high", "very high", "critical") or urgency in ("high", "critical"):
+        return True
+
+    return True
+
+
+def _fetch_tinyfish_context(
+    description: str,
+    severity: Optional[str] = None,
+    urgency: Optional[str] = None,
+    location_text: Optional[str] = None,
+    credibility_concern: bool = False,
+    force: bool = False,
+) -> Optional[str]:
+    """
+    Adapter for TinyFish Search API to retrieve relevant external web context
     (e.g., official disaster updates, relief camp announcements).
     Safe, bounded execution with isolated untrusted output.
     """
-    agent_key = os.getenv("TINY_FISH_AGENT") or os.getenv("TINYFISH_API_KEY")
+    agent_key = os.getenv("TINYFISH_API_KEY") or os.getenv("TINY_FISH_AGENT")
     if not agent_key or os.getenv("DISABLE_TINYFISH"):
+        logger.info("[TinyFish] API key not configured or TinyFish is disabled.")
         return None
 
-    url = os.getenv("TINYFISH_API_URL", "https://api.tinyfish.io/v1/context")
+    cleaned = (description or "").strip()
+    if not cleaned:
+        return None
+
+    pre_eval = extract_need_deterministic(cleaned)
+    if severity:
+        pre_eval["severity"] = severity
+    if urgency:
+        pre_eval["urgency"] = urgency
+
+    if not should_trigger_tinyfish(cleaned, pre_eval=pre_eval, credibility_concern=credibility_concern, force=force):
+        logger.info("[TinyFish] Invocation criteria not met; skipping external web search.")
+        return None
+
+    query = _construct_tinyfish_query(cleaned, location_text=location_text)
+    if not query:
+        logger.debug("[TinyFish] Query construction produced empty search string after PII sanitization.")
+        return None
+
+    url = os.getenv("TINYFISH_API_URL", "https://api.search.tinyfish.ai")
+    
+    # Non-blocking timeout guarantee for critical requests
+    is_critical = (pre_eval.get("severity") == "critical") or (pre_eval.get("urgency") == "critical")
+    timeout = 1.5 if is_critical else 5.0
+
     try:
-        headers = {
-            "Authorization": f"Bearer {agent_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {"query": description[:200], "max_results": 2}
-        resp = requests.post(url, headers=headers, json=payload, timeout=5)
+        if url.endswith("/v1/context") or "/context" in url:
+            # Legacy POST mock endpoint compatibility
+            headers = {
+                "Authorization": f"Bearer {agent_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {"query": query, "max_results": 2}
+            resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        else:
+            # Official TinyFish Search API GET endpoint
+            headers = {
+                "X-API-Key": agent_key,
+                "Accept": "application/json",
+            }
+            params = {
+                "query": query,
+                "purpose": "SETU emergency report verification",
+            }
+            resp = requests.get(url, headers=headers, params=params, timeout=timeout)
+
         if resp.status_code == 200:
             data = resp.json()
-            if isinstance(data, dict) and data.get("context"):
-                context_str = str(data["context"]).strip()
-                return context_str[:500]
-    except Exception:
-        pass
+            context_str = None
+            if isinstance(data, dict):
+                if "results" in data and isinstance(data["results"], list):
+                    items = []
+                    for r in data["results"]:
+                        if isinstance(r, dict):
+                            t = str(r.get("title", "")).strip()
+                            s = str(r.get("snippet", "")).strip()
+                            if t and s:
+                                items.append(f"{t}: {s}")
+                            elif s:
+                                items.append(s)
+                            elif t:
+                                items.append(t)
+                    if items:
+                        context_str = "\n".join(items).strip()
+                elif "context" in data and data["context"]:
+                    context_str = str(data["context"]).strip()
+                elif "summary" in data and data["summary"]:
+                    context_str = str(data["summary"]).strip()
+
+            if context_str:
+                bounded_context = context_str[:500]
+                logger.info("[TinyFish] Successfully retrieved %d chars of context for query: '%s'", len(bounded_context), query)
+                return bounded_context
+            else:
+                logger.info("[TinyFish] API response contained no usable context results for query: '%s'", query)
+        else:
+            logger.warning("[TinyFish] API request failed with status HTTP %d for query '%s': %s", resp.status_code, query, resp.text[:200])
+    except Exception as err:
+        logger.warning("[TinyFish] API call exception for query '%s': %s", query, str(err))
+
     return None
 
 
@@ -258,12 +449,15 @@ def _call_groq(prompt: str, context: Optional[str] = None) -> Dict[str, Any]:
     return _parse_and_validate(raw_text, source)
 
 
-def _call_gemini(prompt: str) -> Dict[str, Any]:
+def _call_gemini(prompt: str, context: Optional[str] = None) -> Dict[str, Any]:
     if _gemini_model is None or not os.getenv("GEMINI_API_KEY"):
         raise ValueError("Gemini model is not configured")
-    response = _gemini_model.generate_content(prompt)
+    full_prompt = f"External public context (UNTRUSTED REFERENCE):\n{context}\n\n{prompt}" if context else prompt
+    response = _gemini_model.generate_content(full_prompt)
     direct_text = (getattr(response, "text", "") or "").strip()
-    return _parse_and_validate(direct_text, "gemini_ai")
+    source = "tinyfish_gemini_ai" if context else "gemini_ai"
+    return _parse_and_validate(direct_text, source)
+
 
 
 def extract_need_deterministic(text: str) -> Dict[str, Any]:
@@ -378,10 +572,15 @@ def extract_need_deterministic(text: str) -> Dict[str, Any]:
     }
 
 
-def extract_need_ai(description: str) -> Dict[str, Any]:
+def extract_need_ai(
+    description: str,
+    location_text: Optional[str] = None,
+    credibility_concern: bool = False,
+    force_tinyfish: bool = False,
+) -> Dict[str, Any]:
     """
     Main entry point for AI extraction.
-    1. Fetches optional TinyFish web context.
+    1. Evaluates conditional rules and fetches optional TinyFish web context.
     2. Tries Groq LLM (primary).
     3. Tries Gemini LLM (secondary).
     4. Falls back to deterministic rule-based extractor.
@@ -392,22 +591,28 @@ def extract_need_ai(description: str) -> Dict[str, Any]:
 
     prompt = build_prompt(cleaned)
 
-    # 1. External Web Context via TinyFish (optional)
-    context = _fetch_tinyfish_context(cleaned)
+    # 1. External Web Context via TinyFish (conditional invocation)
+    context = _fetch_tinyfish_context(
+        cleaned,
+        location_text=location_text,
+        credibility_concern=credibility_concern,
+        force=force_tinyfish,
+    )
 
     # 2. Primary: Groq API
     if os.getenv("GROQ_API_KEY"):
         try:
             return _call_groq(prompt, context=context)
         except Exception as groq_err:
-            print(f"[AI] Groq extraction failed: {groq_err}. Trying Gemini...")
+            logger.warning("[AI] Groq extraction failed: %s. Trying Gemini...", groq_err)
 
     # 3. Secondary: Gemini API
     if os.getenv("GEMINI_API_KEY"):
         try:
-            return _call_gemini(prompt)
+            return _call_gemini(prompt, context=context)
         except Exception as gemini_err:
-            print(f"[AI] Gemini extraction failed: {gemini_err}. Trying deterministic fallback...")
+            logger.warning("[AI] Gemini extraction failed: %s. Trying deterministic fallback...", gemini_err)
 
     # 4. Fallback: Deterministic Rule-Based Engine
     return extract_need_deterministic(cleaned)
+
