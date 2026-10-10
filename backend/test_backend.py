@@ -362,11 +362,11 @@ class TestBasicRoutes:
         assert resp.status_code == 200
         assert "google_maps_api_key" in resp.json()
 
-    def test_get_config_public_missing_key_returns_503(self, client):
+    def test_get_config_public_missing_key_returns_osm_fallback(self, client):
         with patch.dict(os.environ, {"GOOGLE_MAPS_KEY": "", "GOOGLE_MAPS_API_KEY": ""}):
             resp = client.get("/config/public")
-        assert resp.status_code == 503
-        assert "error" in resp.json()
+        assert resp.status_code == 200
+        assert resp.json()["primary_geocoder"] == "openstreetmap"
 
     def test_root_returns_message(self, client):
         resp = client.get("/", headers={"Accept": "application/json"})
@@ -385,10 +385,10 @@ class TestNeedRoute:
         assert resp.status_code == 401
 
     def test_short_description_rejected(self, client):
-        """Description < 10 chars must be rejected with an error key."""
+        """Description < 10 chars must be rejected with an HTTP 400 error."""
         resp = client.post("/need", json={"description": "flood"}, headers=AUTH_HEADERS)
-        assert resp.status_code == 200
-        assert "error" in resp.json()
+        assert resp.status_code == 400
+        assert "detail" in resp.json()
 
     def test_need_success_auto_dispatch(self, client):
         """Long description with good coords and high trust → open/auto_dispatch."""

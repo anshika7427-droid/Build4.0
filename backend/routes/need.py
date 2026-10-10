@@ -24,11 +24,12 @@ def secondary_review(description: str):
     result = process_need_text(description)
 
     # Slight boost if consistent
-    adjustment = 5 if result["consistency"] > 6 else -5
+    cons = result.get("consistency")
+    adjustment = 5 if (cons is not None and cons > 6) else -5
 
     return {
         "adjustment": adjustment,
-        "reason": f"Secondary AI consistency: {result['consistency']}"
+        "reason": f"Secondary AI consistency: {cons}"
     }
 
 
@@ -57,11 +58,24 @@ def _auto_match_for_need(need_id: str):
 def process_and_save_need(data: NeedInput, background_tasks: BackgroundTasks):
     try:
         # 1️⃣ BASIC VALIDATION
-        if len(data.description.strip()) < 10:
-            return {"error": "Description too short"}
+        if not data.description or len(data.description.strip()) < 10:
+            raise HTTPException(status_code=400, detail="Description too short")
 
-        # 2️⃣ AI CLASSIFICATION
+        # Validate explicit user quantity if provided
+        if data.required_quantity is not None:
+            if isinstance(data.required_quantity, bool) or data.required_quantity <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="required_quantity must be a positive integer (> 0)"
+                )
+            required_quantity = data.required_quantity
+        else:
+            required_quantity = None
+
+        # 2️⃣ AI CLASSIFICATION & EXTRACTION
         ai_result = process_need_text(data.description)
+        if ai_result.get("error") == "empty input":
+            raise HTTPException(status_code=400, detail="Description too short")
 
         category = ai_result["category"]
         CATEGORY_NORMALIZATION = {
@@ -78,65 +92,62 @@ def process_and_save_need(data: NeedInput, background_tasks: BackgroundTasks):
         severity = ai_result["severity"]
         consistency = ai_result["consistency"]
 
-        # Extract structured resource and quantity fields
+        # If user didn't specify quantity, check AI extraction
+        if required_quantity is None:
+            ai_qty = ai_result.get("quantity")
+            if ai_qty is not None and isinstance(ai_qty, int) and not isinstance(ai_qty, bool) and ai_qty > 0:
+                required_quantity = ai_qty
+
         resource_type = (data.resource_type or ai_result.get("resource_type") or category or "food").strip().lower()
-        required_quantity = data.required_quantity if data.required_quantity is not None else int(ai_result.get("quantity") or 0)
-        if required_quantity <= 0 and ("200" in data.description or "meal" in data.description):
-            required_quantity = 200
         unit = (data.unit if data.unit and data.unit != "units" else None) or ai_result.get("unit") or "units"
         urgency = (data.urgency or ai_result.get("urgency") or severity or "medium").strip().lower()
         extraction_source = ai_result.get("extraction_source", "deterministic_fallback")
 
-        # 3️⃣ GEOLOCATION
+        # 3️⃣ GEOLOCATION & LOCATION SAFETY
         lat = data.lat
         lng = data.lng
-        
-        # If location_text was empty but AI found a location entity, use it
-        if (not data.location_text.strip() or data.location_text == "Unknown Location") and ai_result.get("location_entity"):
-            data.location_text = ai_result["location_entity"]
+
+        location_text = (data.location_text or "").strip()
+        if (not location_text or location_text.lower() == "unknown location") and ai_result.get("location_entity"):
+            location_text = ai_result["location_entity"]
 
         # Geocode only if exact coords aren't provided
-        if lat == 0.0 and lng == 0.0 and data.location_text.strip() and data.location_text != "Unknown Location":
-            coords = get_coordinates(data.location_text)
+        if (lat == 0.0 and lng == 0.0) and location_text and location_text.lower() != "unknown location":
+            coords = get_coordinates(location_text)
             
-            # Fallback: if the form was mapped backwards, the real address might be in the description under "Help:"
-            if (not coords or coords.get("lat") == 0) and "Help: " in data.description:
+            # Fallback: if form was mapped backwards, real address might be in description under "Help:"
+            if (not coords or (coords.get("lat") == 0.0 and coords.get("lng") == 0.0)) and "Help: " in data.description:
                 fallback_loc = data.description.split("Help: ")[-1].strip()
                 if fallback_loc and fallback_loc != "Not Specified":
                     coords = get_coordinates(fallback_loc)
 
-            # Known demo locations fallback for network resilience
-            if not coords or coords.get("lat") == 0 or coords.get("lng") == 0:
-                loc_lower = (data.location_text + " " + data.description).lower()
-                if "wayanad" in loc_lower:
-                    coords = {"lat": 11.6854, "lng": 76.1320}
-                elif "kanpur" in loc_lower:
-                    coords = {"lat": 26.4499, "lng": 80.3319}
+            if coords:
+                lat = coords.get("lat", 0.0)
+                lng = coords.get("lng", 0.0)
 
-            if not coords or coords.get("lat") == 0 or coords.get("lng") == 0:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid or unresolvable location: {data.location_text}"
-                )
+        # Coordinate Validation (lat in [-90, 90], lng in [-180, 180], finite, not (0.0, 0.0))
+        def _is_valid_coordinates(la, ln):
+            if not isinstance(la, (int, float)) or not isinstance(ln, (int, float)):
+                return False
+            if isinstance(la, bool) or isinstance(ln, bool):
+                return False
+            import math
+            if not (math.isfinite(la) and math.isfinite(ln)):
+                return False
+            if not (-90.0 <= la <= 90.0 and -180.0 <= ln <= 180.0):
+                return False
+            if la == 0.0 and ln == 0.0:
+                return False
+            return True
 
-            lat = coords["lat"]
-            lng = coords["lng"]
+        if not _is_valid_coordinates(lat, lng):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid or unresolvable location: '{location_text or 'unspecified'}'"
+            )
 
-        # Final safety check
-        if lat == 0.0 and lng == 0.0:
-            loc_lower = (data.location_text + " " + data.description).lower()
-            if "wayanad" in loc_lower:
-                lat, lng = 11.6854, 76.1320
-            elif "kanpur" in loc_lower:
-                lat, lng = 26.4499, 80.3319
-            else:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Geocoding failed — coordinates are invalid"
-                )
-            
-        if lat != 0.0 and lng != 0.0 and (not data.location_text.strip() or data.location_text == "Unknown Location"):
-            data.location_text = f"{lat}, {lng}"
+        if not location_text or location_text.lower() == "unknown location":
+            location_text = f"{lat}, {lng}"
 
         payload = data.model_dump() if hasattr(data, "model_dump") else data.dict()
 
@@ -144,9 +155,10 @@ def process_and_save_need(data: NeedInput, background_tasks: BackgroundTasks):
             "lat": lat,
             "lng": lng,
             "category": category,
+            "location_text": location_text,
         }
 
-        # 4️⃣ COMMON VALIDATION
+        # 4️⃣ COMMON VALIDATION & TRUST SCORING
         common_validation = run_common_validation(verification_payload)
 
         if not common_validation["passed"]:
@@ -173,15 +185,22 @@ def process_and_save_need(data: NeedInput, background_tasks: BackgroundTasks):
         trust_score = min(trust_score, 100)
 
         # 5️⃣ TIERED TRIAGE SYSTEM
-        if trust_score <= 30:
+        # Unknown quantities MUST NEVER enter automatic matching or dispatch!
+        if required_quantity is None:
+            dispatch_action = "secondary_review"
+            status = "secondary_review"
+        elif trust_score <= 30:
             dispatch_action = "rejected"
+            status = "rejected"
         elif 31 <= trust_score <= 75:
             review = secondary_review(data.description)
             trust_score += review["adjustment"]
             trust_score = max(0, min(trust_score, 100))
             dispatch_action = "secondary_review"
+            status = "secondary_review"
         else:
             dispatch_action = "auto_dispatch"
+            status = "open"
 
         # 6️⃣ PRIORITY
         if severity in ["critical", "very high"]:
@@ -191,11 +210,11 @@ def process_and_save_need(data: NeedInput, background_tasks: BackgroundTasks):
         else:
             priority = "LOW"
 
-        # 7️⃣ FINAL OBJECT
+        # 7️⃣ FINAL OBJECT FOR PERSISTENCE
         final_data = {
             "reporter_name": data.reporter_name,
             "reporter_phone": data.reporter_phone,
-            "location_text": data.location_text,
+            "location_text": location_text,
             "disaster_type": data.disaster_type,
             "help_needed": data.help_needed,
             "description": data.description,
@@ -211,20 +230,36 @@ def process_and_save_need(data: NeedInput, background_tasks: BackgroundTasks):
             "trust_score": trust_score,
             "dispatch_action": dispatch_action,
             "priority": priority,
-            "status": "secondary_review" if dispatch_action == "secondary_review" else ("rejected" if dispatch_action == "rejected" else "open"),
+            "status": status,
             "flag": "verified" if trust_score > 50 else "suspicious",
             "extraction_source": extraction_source,
             "reasons": trust_result.get("reasons", []),
         }
 
-        # 💾 SAVE
-        doc_id = save_need(final_data)
+        # 💾 SAVE WITH TRANSACTION/EXCEPTION SAFETY
+        try:
+            doc_id = save_need(final_data)
+        except HTTPException:
+            raise
+        except Exception as db_err:
+            traceback.print_exc()
+            raise HTTPException(
+                status_code=500,
+                detail="Database persistence failed"
+            )
+
+        if not doc_id:
+            raise HTTPException(
+                status_code=500,
+                detail="Database persistence failed — no record ID returned"
+            )
+
         final_data["id"] = doc_id
         final_data["need_id"] = doc_id
         needs_storage.append(final_data)
 
-        # 🚀 AUTO ACTIONS
-        if dispatch_action == "auto_dispatch":
+        # 🚀 AUTO ACTIONS (only after successful DB save AND valid quantity)
+        if dispatch_action == "auto_dispatch" and required_quantity is not None:
             background_tasks.add_task(_auto_match_for_need, doc_id)
             background_tasks.add_task(send_alert, final_data)
 
@@ -234,7 +269,10 @@ def process_and_save_need(data: NeedInput, background_tasks: BackgroundTasks):
         raise
     except Exception as e:
         traceback.print_exc()
-        return {"error": str(e)}
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected server error occurred"
+        )
 
 
 @router.post("/report")

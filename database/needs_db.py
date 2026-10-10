@@ -22,6 +22,26 @@ def save_need(data: dict) -> str:
         
     data["timestamp"] = timestamp
 
+    req_qty = data.get("required_quantity")
+    if req_qty is not None and not isinstance(req_qty, bool):
+        try:
+            req_qty = int(req_qty)
+            if req_qty <= 0:
+                req_qty = None
+        except (TypeError, ValueError):
+            req_qty = None
+    else:
+        req_qty = None
+
+    ful_qty = data.get("fulfilled_quantity")
+    if ful_qty is not None and not isinstance(ful_qty, bool):
+        try:
+            ful_qty = int(ful_qty)
+        except (TypeError, ValueError):
+            ful_qty = 0
+    else:
+        ful_qty = 0
+
     with get_db_cursor(commit=True) as cur:
         cur.execute(
             """
@@ -38,8 +58,8 @@ def save_need(data: dict) -> str:
                 data.get("category"), data["status"], data["timestamp"], data.get("updated_at"),
                 data.get("trust_score"), data.get("summary_en"), data.get("summary_local"),
                 data.get("disaster_type"), data.get("help_needed"),
-                data.get("resource_type", "food"), int(data.get("required_quantity") or 0),
-                int(data.get("fulfilled_quantity") or 0), data.get("unit", "units"), data.get("urgency", "medium")
+                data.get("resource_type", "food"), req_qty,
+                ful_qty, data.get("unit", "units"), data.get("urgency", "medium")
             )
         )
 
@@ -87,15 +107,11 @@ def get_all_needs() -> list:
         cur.execute("SELECT * FROM needs_reports")
         rows = cur.fetchall()
         
-    print("\n[DB DEBUG] fetching from 'needs_reports' table...")
-    print(f"[DB DEBUG] TOTAL DOCS FOUND: {len(rows)}")
-    
     for r in rows:
         if r.get("timestamp"):
             r["timestamp"] = r["timestamp"].isoformat()
         if r.get("updated_at"):
             r["updated_at"] = r["updated_at"].isoformat()
-        print(f"[DB DEBUG] Doc {r.get('id')} -> {r}")
         
     return rows
 
@@ -148,7 +164,6 @@ def check_corroboration(lat: float, lng: float, category: str) -> int:
                 if abs(doc_lat - lat) <= 0.05 and abs(doc_lng - lng) <= 0.05:
                     count += 1
             else:
-                # Coordinates unavailable — count category + time match alone
                 count += 1
 
         return count

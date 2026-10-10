@@ -11,7 +11,6 @@ import os
 import sys
 from unittest.mock import MagicMock, patch
 
-
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
@@ -35,7 +34,8 @@ def _classification_json(category: str, severity: str, consistency: int = 7) -> 
     )
 
 
-@patch("ai_processing.gemini_processor._gemini_model")
+@patch.dict(os.environ, {"GROQ_API_KEY": "", "GEMINI_API_KEY": "fake_gemini"})
+@patch("backend.services.ai._gemini_model")
 def test_driver_transport_is_logistics_not_medical(mock_gemini_model):
     """Regression test: transport/driver requests must stay in logistics category."""
     mock_gemini_model.generate_content.return_value = _gemini_response(
@@ -50,7 +50,8 @@ def test_driver_transport_is_logistics_not_medical(mock_gemini_model):
     assert result["severity"] in ["low", "medium"]
 
 
-@patch("ai_processing.gemini_processor._gemini_model")
+@patch.dict(os.environ, {"GROQ_API_KEY": "", "GEMINI_API_KEY": "fake_gemini"})
+@patch("backend.services.ai._gemini_model")
 def test_building_collapse_trapped_is_rescue_critical(mock_gemini_model):
     """High-stakes emergency should map to rescue + critical."""
     mock_gemini_model.generate_content.return_value = _gemini_response(
@@ -64,7 +65,8 @@ def test_building_collapse_trapped_is_rescue_critical(mock_gemini_model):
     assert result["severity"] == "critical"
 
 
-@patch("ai_processing.gemini_processor._gemini_model")
+@patch.dict(os.environ, {"GROQ_API_KEY": "", "GEMINI_API_KEY": "fake_gemini"})
+@patch("backend.services.ai._gemini_model")
 def test_severity_uses_new_five_level_scale(mock_gemini_model):
     """Model output should support and preserve the new 5-level severity values."""
     accepted = ["low", "medium", "high", "very high", "critical"]
@@ -79,9 +81,10 @@ def test_severity_uses_new_five_level_scale(mock_gemini_model):
         assert result["severity"] == severity
 
 
-@patch("ai_processing.gemini_processor._gemini_model")
-def test_processor_returns_exact_three_keys(mock_gemini_model):
-    """Production contract should return only category, severity, and consistency."""
+@patch.dict(os.environ, {"GROQ_API_KEY": "", "GEMINI_API_KEY": "fake_gemini"})
+@patch("backend.services.ai._gemini_model")
+def test_processor_returns_canonical_schema_fields(mock_gemini_model):
+    """Production contract should return canonical fields including category, severity, consistency."""
     mock_gemini_model.generate_content.return_value = _gemini_response(
         _classification_json("medical", "high", 8)
     )
@@ -89,4 +92,7 @@ def test_processor_returns_exact_three_keys(mock_gemini_model):
     from ai_processing.gemini_processor import process_need_text
 
     result = process_need_text("Need first aid and medicines")
-    assert sorted(result.keys()) == ["category", "consistency", "severity"]
+    assert "category" in result
+    assert "severity" in result
+    assert "consistency" in result
+    assert "extraction_source" in result

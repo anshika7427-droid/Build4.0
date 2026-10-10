@@ -309,7 +309,7 @@ class TestNgosDB:
 class TestAssignmentsDB:
 
     def test_save_assignment_returns_id(self, mock_cursor):
-        mock_cursor.fetchone.return_value = {
+        rec = {
             "active_assignments": 0,
             "id": "vol-1",
             "name": "Ravi",
@@ -318,15 +318,17 @@ class TestAssignmentsDB:
             "location_text": "Delhi",
             "volunteer_id": "vol-1",
             "need_id": "need-1",
+            "status": "open",
             "resolved_at": None
         }
+        mock_cursor.fetchone.side_effect = [rec, rec, None]
         from database.assignments_db import save_assignment
         res = save_assignment("need-1", "vol-1")
         assert res is not None
         assert mock_cursor.execute.called
 
     def test_save_assignment_updates_tables(self, mock_cursor):
-        mock_cursor.fetchone.return_value = {
+        rec = {
             "active_assignments": 0,
             "id": "vol-2",
             "name": "Priya",
@@ -335,8 +337,10 @@ class TestAssignmentsDB:
             "location_text": "Delhi",
             "volunteer_id": "vol-2",
             "need_id": "need-2",
+            "status": "open",
             "resolved_at": None
         }
+        mock_cursor.fetchone.side_effect = [rec, rec, None]
         from database.assignments_db import save_assignment
         save_assignment("need-2", "vol-2")
         # Check that we did updating SQL operations
@@ -355,7 +359,8 @@ class TestAssignmentsDB:
     def test_save_assignment_raises_if_need_already_assigned(self, mock_cursor):
         mock_cursor.fetchone.side_effect = [
             {"active_assignments": 0, "name": "V", "phone": "123"},
-            {"status": "assigned"}
+            {"status": "open"},
+            {"id": "exist-assign-123"}
         ]
         from database.assignments_db import save_assignment
         with pytest.raises(ValueError, match="already assigned"):
@@ -387,7 +392,8 @@ class TestAssignmentsDB:
     def test_save_assignment_uses_atomic_sql_increment(self, mock_cursor):
         mock_cursor.fetchone.side_effect = [
             {"active_assignments": 1, "name": "V", "phone": "123"},
-            {"status": "open", "description": "Need food", "location_text": "Delhi"}
+            {"status": "open", "description": "Need food", "location_text": "Delhi"},
+            None
         ]
         from database.assignments_db import save_assignment
         assign_id = save_assignment("need-open", "vol-1")

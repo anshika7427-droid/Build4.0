@@ -63,10 +63,17 @@ def allocate_ngos_for_need(need_id: str) -> dict:
         if not need:
             raise ValueError(f"Need '{need_id}' not found")
 
-        req_qty = need.get("required_quantity") or 0
-        if req_qty <= 0:
-            # Fallback if quantity wasn't set: default to 200 for demo
-            req_qty = 200
+        req_qty = need.get("required_quantity")
+        if req_qty is None or req_qty <= 0:
+            return {
+                "need_id": need_id,
+                "status": "unspecified_quantity",
+                "required_quantity": None,
+                "fulfilled_quantity": 0,
+                "remaining_shortfall": None,
+                "allocations": [],
+                "message": "Cannot allocate inventory for unspecified quantity"
+            }
 
         fulfilled_qty = need.get("fulfilled_quantity") or 0
         remaining_qty = req_qty - fulfilled_qty

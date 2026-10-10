@@ -226,13 +226,21 @@ def calculate_trust_score(
 
         # ------------------------------------------------------------------ #
         # LAYER 2 — AI Consistency score (max 30 pts)
-        # Each consistency point (0-10) is worth 3 score points.
+        # Each valid consistency point (1-10) is worth 3 score points.
         # ------------------------------------------------------------------ #
-        consistency_points = min(max(int(ai_consistency), 0), 10) * 3  # clamp 0-30
-        score += consistency_points
-        reasons.append(
-            f"+{consistency_points}: AI consistency score ({ai_consistency}/10)"
-        )
+        if ai_consistency is not None and not isinstance(ai_consistency, bool):
+            try:
+                c_val = int(ai_consistency)
+                if 1 <= c_val <= 10:
+                    consistency_points = c_val * 3
+                    score += consistency_points
+                    reasons.append(f"+{consistency_points}: AI consistency score ({c_val}/10)")
+                else:
+                    reasons.append("+0: AI consistency out of range (unassessed)")
+            except (TypeError, ValueError):
+                reasons.append("+0: AI consistency malformed (unassessed)")
+        else:
+            reasons.append("+0: AI consistency unassessed or missing")
 
         # ------------------------------------------------------------------ #
         # LAYER 3 — External Weather/Disaster API Correlation (max 20 pts)
