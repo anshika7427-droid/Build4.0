@@ -229,7 +229,22 @@ def match_needs(token: dict = Depends(verify_token)):
     matches = []
 
     for need in open_needs:
-        trust = need.get("trust_score", 100)
+        # Trust Engine V2 Safety Gating:
+        # Needs held for review, flagged, or having low trust tier/action must NEVER be auto-matched
+        trust_tier = str(need.get("trust_tier") or "").lower()
+        dispatch_action = str(need.get("dispatch_action") or "").lower()
+        status = str(need.get("status") or "").lower()
+        trust = need.get("trust_score")
+        if trust is None:
+            trust = 100
+
+        if (
+            trust_tier == "low"
+            or dispatch_action in ("hold_and_flag", "human_review", "secondary_review", "rejected")
+            or status in ("flagged", "secondary_review", "rejected", "held")
+        ):
+            continue
+
         severity = (need.get("severity") or "low").lower()
 
         if severity in ["critical", "very high"]:

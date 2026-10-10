@@ -276,3 +276,57 @@ def get_volunteer(volunteer_id: str) -> dict | None:
                 row["updated_at"] = row["updated_at"].isoformat()
             return row
     return None
+
+
+def check_transport_capacity_available(lat: float, lng: float, radius_km: float = 50.0) -> bool:
+    """
+    Checks if there are available volunteers with vehicle or transport/logistics capacity
+    within the specified radius (default 50km).
+    """
+    import math
+
+    def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+        R = 6371.0
+        p1, p2 = math.radians(lat1), math.radians(lat2)
+        dp = math.radians(lat2 - lat1)
+        dl = math.radians(lng2 - lng1)
+        a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    transport_keywords = {
+        "logistics", "driving", "driver", "transport", "transportation",
+        "vehicle", "truck", "van", "ambulance", "boat"
+    }
+
+    try:
+        with get_db_cursor(commit=False) as cur:
+            cur.execute(
+                """
+                SELECT lat, lng, skills, available, active_assignments
+                FROM volunteers
+                WHERE available = True AND active_assignments < 3
+                """
+            )
+            rows = cur.fetchall()
+
+        for r in rows:
+            v_skills = r.get("skills") or []
+            if isinstance(v_skills, str):
+                v_skills = [v_skills]
+            v_skills_lower = {str(s).strip().lower() for s in v_skills if s}
+
+            if not v_skills_lower.intersection(transport_keywords) and "all" not in v_skills_lower:
+                continue
+
+            v_lat = r.get("lat")
+            v_lng = r.get("lng")
+            if v_lat is not None and v_lng is not None:
+                dist = _haversine_km(float(lat), float(lng), float(v_lat), float(v_lng))
+                if dist <= radius_km:
+                    return True
+            else:
+                return True
+        return False
+    except Exception as e:
+        print(f"[TransportCapacity] Query failed: {e}")
+        return False

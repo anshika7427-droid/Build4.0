@@ -2,6 +2,7 @@ from typing import Tuple, Optional
 import uuid
 import math
 from datetime import datetime, timezone
+from typing import Optional
 from database.postgres_client import get_db_cursor
 
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -347,3 +348,33 @@ def release_allocations_for_need(need_id: str) -> bool:
             cur.execute("UPDATE ngo_allocations SET status = 'cancelled' WHERE id = %s", (a["id"],))
         cur.execute("UPDATE needs_reports SET fulfilled_quantity = 0, status = 'open' WHERE id = %s", (need_id,))
     return True
+
+
+def check_food_inventory_available(
+    resource_category: str = "food",
+    quantity: float = 1.0,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    **kwargs,
+) -> bool:
+    """
+    Checks if there is sufficient available food stock across NGOs.
+    """
+    try:
+        qty_needed = max(1.0, float(quantity or 1.0))
+        with get_db_cursor(commit=False) as cur:
+            cur.execute(
+                """
+                SELECT SUM(available_quantity) as total_avail
+                FROM ngo_inventory
+                WHERE LOWER(resource_type) IN ('food', 'meals', 'dry rations', 'rations', 'food packets', 'groceries', 'supplies')
+                """
+            )
+            row = cur.fetchone()
+            if row and row.get("total_avail") is not None:
+                total_avail = float(row.get("total_avail") or 0.0)
+                return total_avail >= qty_needed
+            return False
+    except Exception as e:
+        print(f"[FoodInventoryAvailable] Query failed: {e}")
+        return False
