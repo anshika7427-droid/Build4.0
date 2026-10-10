@@ -217,18 +217,17 @@ class TestModels:
 
 class TestWebSocketManager:
 
-    @pytest.mark.asyncio
-    async def test_connect_adds_to_connections(self):
+    def test_connect_adds_to_connections(self):
         from backend.main import WebSocketManager
+        import anyio
         manager = WebSocketManager()
         ws = MagicMock()
         ws.accept = AsyncMock()
-        await manager.connect(ws)
+        anyio.run(manager.connect, ws)
         assert ws in manager.active_connections
         ws.accept.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_disconnect_removes_connection(self):
+    def test_disconnect_removes_connection(self):
         from backend.main import WebSocketManager
         manager = WebSocketManager()
         ws = MagicMock()
@@ -236,33 +235,32 @@ class TestWebSocketManager:
         manager.disconnect(ws)
         assert ws not in manager.active_connections
 
-    @pytest.mark.asyncio
-    async def test_disconnect_noop_if_not_connected(self):
+    def test_disconnect_noop_if_not_connected(self):
         from backend.main import WebSocketManager
         manager = WebSocketManager()
         ws = MagicMock()
         manager.disconnect(ws)  # Should not raise
 
-    @pytest.mark.asyncio
-    async def test_broadcast_sends_to_all(self):
+    def test_broadcast_sends_to_all(self):
         from backend.main import WebSocketManager
+        import anyio
         manager = WebSocketManager()
         ws1 = MagicMock(); ws1.send_json = AsyncMock()
         ws2 = MagicMock(); ws2.send_json = AsyncMock()
         manager.active_connections.extend([ws1, ws2])
-        await manager.broadcast_json({"msg": "hello"})
+        anyio.run(manager.broadcast_json, {"msg": "hello"})
         ws1.send_json.assert_called_with({"msg": "hello"})
         ws2.send_json.assert_called_with({"msg": "hello"})
 
-    @pytest.mark.asyncio
-    async def test_broadcast_removes_stale_connections(self):
+    def test_broadcast_removes_stale_connections(self):
         """Connections that raise on send_json should be pruned automatically."""
         from backend.main import WebSocketManager
+        import anyio
         manager = WebSocketManager()
         ws_ok = MagicMock(); ws_ok.send_json = AsyncMock()
         ws_bad = MagicMock(); ws_bad.send_json = AsyncMock(side_effect=Exception("closed"))
         manager.active_connections.extend([ws_ok, ws_bad])
-        await manager.broadcast_json({"event": "test"})
+        anyio.run(manager.broadcast_json, {"event": "test"})
         assert ws_bad not in manager.active_connections
         assert ws_ok in manager.active_connections
 
@@ -1759,4 +1757,4 @@ class TestNGORoute:
             assert resp.status_code == 403
             assert "Access denied" in resp.json()["detail"]
         finally:
-            app.dependency_overrides.clear()
+            app.dependency_overrides.clear()

@@ -9,10 +9,15 @@ from getpass import getpass
 from typing import Optional, Dict, Any, List, Tuple
 
 # Force UTF-8 stdout/stderr on Windows to prevent UnicodeEncodeError with emojis
-if sys.platform == "win32" and type(sys.stdout).__name__ == "TextIOWrapper":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-if sys.platform == "win32" and type(sys.stderr).__name__ == "TextIOWrapper":
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    elif type(sys.stdout).__name__ == "TextIOWrapper" and hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    elif type(sys.stderr).__name__ == "TextIOWrapper" and hasattr(sys.stderr, "buffer"):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 import requests
 from dotenv import load_dotenv
@@ -95,14 +100,47 @@ def magenta(t): return f"{C.MAGENTA}{t}{C.END}"
 def bold(t): return f"{C.BOLD}{t}{C.END}"
 def dim(t): return f"{C.DIM}{t}{C.END}"
 
+def ensure_streams_open():
+    """Ensure sys.stdout and sys.stderr are open and functional."""
+    try:
+        if sys.stdout is None or getattr(sys.stdout, "closed", False):
+            if sys.__stdout__ and not getattr(sys.__stdout__, "closed", False):
+                sys.stdout = sys.__stdout__
+            else:
+                sys.stdout = io.TextIOWrapper(open(1, "wb", closefd=False), encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+    try:
+        if sys.stderr is None or getattr(sys.stderr, "closed", False):
+            if sys.__stderr__ and not getattr(sys.__stderr__, "closed", False):
+                sys.stderr = sys.__stderr__
+            else:
+                sys.stderr = io.TextIOWrapper(open(2, "wb", closefd=False), encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+def safe_print(*args, **kwargs):
+    """Print safely with stream recovery in case output stream was closed."""
+    ensure_streams_open()
+    try:
+        print(*args, **kwargs)
+    except (ValueError, OSError):
+        try:
+            ensure_streams_open()
+            print(*args, **kwargs)
+        except Exception:
+            pass
+
 # ================= SAFE PROMPT HELPERS =================
 def safe_input(prompt_text: str) -> str:
     """Read input safely, catching KeyboardInterrupt / EOF."""
+    ensure_streams_open()
     try:
         val = input(prompt_text)
         return val.strip()
     except (KeyboardInterrupt, EOFError):
-        print("\n\n" + yellow("👋 Operation cancelled."))
+        safe_print("\n\n" + yellow("👋 Operation cancelled."))
         raise KeyboardInterrupt
 
 def prompt_str(prompt_text: str, default: Optional[str] = None) -> str:
@@ -656,14 +694,17 @@ def action_view_active_needs():
 
 def action_run_golden_demo():
     """Execute the full 7-step automated MVP workflow demonstration."""
+    ensure_streams_open()
     print_section("8. Run Automated 7-Step Golden-Path Demo")
-    print(dim("Runs end-to-end simulation of all 7 SETU capabilities.\n"))
+    safe_print(dim("Runs end-to-end simulation of all 7 SETU capabilities.\n"))
 
     from demo_runner import run_demo
     try:
         run_demo(base_url=BASE_URL, secret_token=session_state["token"])
     except Exception as e:
-        print(red(f"❌ Demo execution error: {e}"))
+        safe_print(red(f"❌ Demo execution error: {e}"))
+    finally:
+        ensure_streams_open()
 
     pause()
 
