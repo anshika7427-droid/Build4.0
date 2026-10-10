@@ -2,6 +2,8 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import DashboardPage from './pages/DashboardPage';
+import NgoDashboardPage from './pages/NgoDashboardPage';
+import VolunteerDashboardPage from './pages/VolunteerDashboardPage';
 
 export default function App() {
   return (
@@ -10,7 +12,13 @@ export default function App() {
         {/* Public Project Landing Page as the Root Route */}
         <Route path="/" element={<LandingPage />} />
 
-        {/* Separate Coordinator Operations Dashboard */}
+        {/* Dedicated Role-Specific NGO Dashboard */}
+        <Route path="/ngo-dashboard" element={<NgoDashboardPage />} />
+
+        {/* Dedicated Role-Specific Volunteer Dashboard */}
+        <Route path="/volunteer-dashboard" element={<VolunteerDashboardPage />} />
+
+        {/* Operational Coordinator Operations Dashboard */}
         <Route path="/dashboard" element={<DashboardPage />} />
 
         {/* Catch-all redirect to public landing page */}

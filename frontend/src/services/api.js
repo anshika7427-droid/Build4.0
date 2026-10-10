@@ -1,10 +1,11 @@
 // ============================================================================
 // SETU - Centralized Disaster Coordination API Service & Resilient Mock Engine
 // Follows strictly summary.md Section 5 Data Contracts & Section 6 API Routes
+// Built with Bharat 4.0 — Smart Emergency Response System
 // ============================================================================
 
 const BASE_URL = (import.meta.env?.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/+$/, '');
-const MOCK_STORAGE_KEY = 'setu_mock_database_v1';
+const MOCK_STORAGE_KEY = 'setu_mock_database_v2';
 const MOCK_CONFIG_KEY = 'setu_use_mock_config';
 
 // ----------------------------------------------------------------------------
@@ -13,27 +14,33 @@ const MOCK_CONFIG_KEY = 'setu_use_mock_config';
 const SEED_VOLUNTEERS = [
   {
     id: "V001",
-    name: "Rahul Sharma (Volunteer)",
+    name: "Rahul Sharma",
+    role_title: "Logistics & Ground Responder",
     skills: ["food_distribution", "first_aid", "crowd_coordination"],
     latitude: 11.6890,
     longitude: 76.1350,
     available: true,
     verified: true,
     tier: 1,
-    active_assignments: 1,
     phone: "+91 98765 43210",
+    email: "rahul.sharma@responder.setu.in",
+    vehicle: "Motorcycle / Light Van",
+    blood_group: "O+",
   },
   {
     id: "V002",
-    name: "Dr. Ananya Sen (Medical Volunteer)",
+    name: "Dr. Ananya Sen",
+    role_title: "Emergency Medical Responder",
     skills: ["emergency_medicine", "triage", "wound_care"],
     latitude: 11.6820,
     longitude: 76.1280,
     available: true,
     verified: true,
     tier: 1,
-    active_assignments: 0,
     phone: "+91 98765 11223",
+    email: "ananya.sen@responder.setu.in",
+    vehicle: "First Response Vehicle",
+    blood_group: "B+",
   },
 ];
 
@@ -42,18 +49,35 @@ const SEED_NGOS = [
     id: "NGO001",
     name: "Kerala Relief Network",
     verified: true,
-    location_text: "Wayanad Central Relief Hub",
+    location_text: "Wayanad Central Relief Hub, Meppadi Road",
     phone: "+91 4936 200111",
+    email: "dispatch@keralarelief.org",
+    coordinator_name: "K. Mohan Kumar",
+    coverage_radius_km: 35,
     capacity: [
       {
         need_type: "food",
+        item_name: "Cooked Meals & Dry Rations",
         quantity: 500,
+        reserved: 200,
         unit: "meals",
+        threshold: 100,
       },
       {
         need_type: "water",
+        item_name: "Clean Drinking Water Cans",
         quantity: 1000,
+        reserved: 80,
         unit: "liters",
+        threshold: 250,
+      },
+      {
+        need_type: "shelter",
+        item_name: "Emergency Tarpaulins & Blankets",
+        quantity: 75,
+        reserved: 0,
+        unit: "kits",
+        threshold: 20,
       },
     ],
   },
@@ -61,13 +85,35 @@ const SEED_NGOS = [
     id: "NGO002",
     name: "Seva Disaster Medical Corps",
     verified: true,
-    location_text: "Kalpetta Emergency Depot",
+    location_text: "Kalpetta Emergency Depot, Sector 2",
     phone: "+91 4936 200222",
+    email: "operations@sevamedical.org",
+    coordinator_name: "Dr. Preethi Nair",
+    coverage_radius_km: 50,
     capacity: [
       {
         need_type: "medical",
+        item_name: "First Aid & Triage Trauma Kits",
         quantity: 150,
+        reserved: 25,
         unit: "first_aid_kits",
+        threshold: 30,
+      },
+      {
+        need_type: "water",
+        item_name: "Water Purification & Chlorine Kits",
+        quantity: 120,
+        reserved: 50,
+        unit: "kits",
+        threshold: 25,
+      },
+      {
+        need_type: "rescue",
+        item_name: "Life Vests & Floatation Rings",
+        quantity: 40,
+        reserved: 10,
+        unit: "units",
+        threshold: 15,
       },
     ],
   },
@@ -176,6 +222,56 @@ const SEED_NEEDS = [
       duplicate_suspected: false,
     },
   },
+  {
+    id: "N005",
+    description: "80 liters clean drinking water required at Meppadi Community Hall for flood evacuees.",
+    need_type: "water",
+    item: "clean drinking water",
+    quantity: 80,
+    unit: "liters",
+    location_text: "Meppadi Community Hall, Ward 6",
+    latitude: 11.5540,
+    longitude: 76.1280,
+    severity: "high",
+    trust_score: 93,
+    verification_status: "verified",
+    status: "in_progress",
+    created_at: new Date(Date.now() - 50 * 60000).toISOString(),
+    trust_result: {
+      trust_score: 93,
+      decision: "verified",
+      reasons: [
+        "Verified by local ward member contact",
+        "Water main damaged by landslide in Ward 6",
+      ],
+      duplicate_suspected: false,
+    },
+  },
+  {
+    id: "N006",
+    description: "25 first aid and trauma triage kits needed urgently at primary medical post.",
+    need_type: "medical",
+    item: "first aid kits",
+    quantity: 25,
+    unit: "kits",
+    location_text: "Kalpetta Relief Camp Health Post",
+    latitude: 11.6085,
+    longitude: 76.0845,
+    severity: "high",
+    trust_score: 95,
+    verification_status: "verified",
+    status: "assigned",
+    created_at: new Date(Date.now() - 25 * 60000).toISOString(),
+    trust_result: {
+      trust_score: 95,
+      decision: "verified",
+      reasons: [
+        "Direct intake from on-duty medical officer",
+        "Supply replenished via Seva Disaster Medical Corps inventory",
+      ],
+      duplicate_suspected: false,
+    },
+  },
 ];
 
 const SEED_ASSIGNMENTS = [
@@ -184,9 +280,17 @@ const SEED_ASSIGNMENTS = [
     need_id: "N001",
     ngo_id: "NGO001",
     volunteer_id: "V001",
-    status: "assigned",
+    status: "assigned", // assigned (pending volunteer acceptance)
+    dispatch_status: "ready_for_pickup", // ready_for_pickup, dispatched, in_transit, delivered
     assigned_at: new Date(Date.now() - 30 * 60000).toISOString(),
     resolved_at: null,
+    destination: "Wayanad Relief Camp, Sector 4",
+    latitude: 11.6854,
+    longitude: 76.1320,
+    supplies: "200 cooked meals & ration packets",
+    quantity: 200,
+    unit: "meals",
+    instructions: "Collect 200 hot food boxes from Wayanad Central Relief Hub kitchen. Present manifest to Camp Warden Sreedharan at Gate 2. Avoid flooded low-lying bypass.",
   },
   {
     id: "A002",
@@ -194,8 +298,50 @@ const SEED_ASSIGNMENTS = [
     ngo_id: "NGO002",
     volunteer_id: "V002",
     status: "resolved",
+    dispatch_status: "delivered",
     assigned_at: new Date(Date.now() - 120 * 60000).toISOString(),
     resolved_at: new Date(Date.now() - 15 * 60000).toISOString(),
+    destination: "Chundale Community Center",
+    latitude: 11.6110,
+    longitude: 76.0590,
+    supplies: "50 water purification kits",
+    quantity: 50,
+    unit: "kits",
+    instructions: "Hand over purification units to community shelter lead. Signed receipt submitted.",
+  },
+  {
+    id: "A003",
+    need_id: "N005",
+    ngo_id: "NGO001",
+    volunteer_id: "V001",
+    status: "in_progress",
+    dispatch_status: "in_transit",
+    assigned_at: new Date(Date.now() - 45 * 60000).toISOString(),
+    resolved_at: null,
+    destination: "Meppadi Community Hall, Ward 6",
+    latitude: 11.5540,
+    longitude: 76.1280,
+    supplies: "80 liters clean drinking water (4 x 20L cans)",
+    quantity: 80,
+    unit: "liters",
+    instructions: "Water cans loaded on vehicle. Route clearance verified via Meppadi town road. Contact ward member Anitha on arrival.",
+  },
+  {
+    id: "A004",
+    need_id: "N006",
+    ngo_id: "NGO002",
+    volunteer_id: "V002",
+    status: "assigned",
+    dispatch_status: "ready_for_pickup",
+    assigned_at: new Date(Date.now() - 20 * 60000).toISOString(),
+    resolved_at: null,
+    destination: "Kalpetta Relief Camp Health Post",
+    latitude: 11.6085,
+    longitude: 76.0845,
+    supplies: "25 first aid and trauma triage kits",
+    quantity: 25,
+    unit: "kits",
+    instructions: "Pick up sterilized kit boxes from Kalpetta Emergency Depot shelf M-2. Hand over directly to Dr. Sen or duty nurse.",
   },
 ];
 
@@ -206,7 +352,10 @@ function loadMockDatabase() {
   try {
     const raw = localStorage.getItem(MOCK_STORAGE_KEY);
     if (raw) {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (parsed.needs && parsed.assignments && parsed.volunteers && parsed.ngos) {
+        return parsed;
+      }
     }
   } catch (e) {
     console.warn("Could not load stored mock database; resetting to canonical seed.", e);
@@ -230,7 +379,7 @@ function saveMockDatabase(data) {
 }
 
 // ----------------------------------------------------------------------------
-// Mock Intelligence Parser (Simulating Anshuman's AI & Golu's Trust Service)
+// Mock Intelligence Parser (Simulating AI & Trust Engine)
 // ----------------------------------------------------------------------------
 function simulateStructuredNeedExtraction(rawText, locationHint = '') {
   const text = (rawText || '').trim();
@@ -283,7 +432,6 @@ function simulateStructuredNeedExtraction(rawText, locationHint = '') {
   }
 
   // 5. Trust Assessment Calculation
-  const isDuplicate = false;
   let trust_score = 88;
   const reasons = [
     "Contact information validated with format check",
@@ -309,7 +457,7 @@ function simulateStructuredNeedExtraction(rawText, locationHint = '') {
       trust_score,
       decision: trust_score >= 80 ? "verified" : "review",
       reasons,
-      duplicate_suspected: isDuplicate,
+      duplicate_suspected: false,
     },
   };
 }
@@ -348,7 +496,7 @@ class ApiService {
     const headers = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      ...(options.headers || {}),
+      ...options.headers,
     };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -404,7 +552,6 @@ class ApiService {
     if (res.ok) {
       return { ok: true, mode: 'live', data: res.data };
     }
-    // Return structured offline report
     return {
       ok: false,
       mode: 'live_offline',
@@ -413,7 +560,7 @@ class ApiService {
   }
 
   // --------------------------------------------------------------------------
-  // 1B. Community Telemetry Stats (GET /stats or GET /dashboard)
+  // 2. Community Telemetry Stats
   // --------------------------------------------------------------------------
   static async getCommunityStats() {
     if (this.isMockMode()) {
@@ -423,13 +570,12 @@ class ApiService {
         mode: 'mock',
         data: {
           total_volunteers: db.volunteers?.length || 2,
-          total_needs: db.needs?.length || 4,
+          total_needs: db.needs?.length || 6,
           total_ngos: db.ngos?.length || 2,
         },
       };
     }
 
-    // Try GET /stats from stats.py
     let res = await this.request('/stats');
     if (res.ok && res.data) {
       return {
@@ -443,7 +589,6 @@ class ApiService {
       };
     }
 
-    // Fallback to GET /dashboard
     res = await this.request('/dashboard');
     if (res.ok && res.data) {
       return {
@@ -464,14 +609,12 @@ class ApiService {
     };
   }
 
-
   // --------------------------------------------------------------------------
-  // 2. Needs Feed & Listing (GET /needs or GET /dashboard/reports)
+  // 3. Needs Feed & Listing
   // --------------------------------------------------------------------------
   static async getNeeds() {
     if (this.isMockMode()) {
       const db = loadMockDatabase();
-      // Join assignment, volunteer, and NGO metadata for each need
       const enriched = db.needs.map((need) => {
         const assignment = db.assignments.find((a) => a.need_id === need.id);
         const volunteer = assignment ? db.volunteers.find((v) => v.id === assignment.volunteer_id) : null;
@@ -492,7 +635,6 @@ class ApiService {
       };
     }
 
-    // Try canonical GET /needs, then fallback to /dashboard/reports
     let res = await this.request('/needs');
     if (!res.ok && res.status === 404) {
       res = await this.request('/dashboard/reports');
@@ -515,7 +657,7 @@ class ApiService {
   }
 
   // --------------------------------------------------------------------------
-  // 3. Need Details by ID (GET /needs/{id})
+  // 4. Need Details by ID
   // --------------------------------------------------------------------------
   static async getNeed(needId) {
     if (this.isMockMode()) {
@@ -539,12 +681,11 @@ class ApiService {
       };
     }
 
-    const res = await this.request(`/needs/${needId}`);
-    return res;
+    return this.request(`/needs/${needId}`);
   }
 
   // --------------------------------------------------------------------------
-  // 4. Submit Emergency Distress Report (POST /needs or POST /webhook)
+  // 5. Submit Emergency Distress Report
   // --------------------------------------------------------------------------
   static async submitEmergencyReport(payload) {
     const rawText = payload.description || payload.text || '';
@@ -573,18 +714,16 @@ class ApiService {
         trust_result: structured.trust_result,
       };
 
-      // Auto-match assignment if eligible NGO and Volunteer exist
+      // Match according to backend simulation
       let newAssignment = null;
       let matchedVolunteer = null;
       let matchedNGO = null;
 
       if (newNeed.verification_status === "verified" && newNeed.severity !== "critical") {
-        // Find matching NGO capacity
         matchedNGO = db.ngos.find((ngo) =>
           ngo.capacity.some((c) => c.need_type === newNeed.need_type)
         ) || db.ngos[0];
 
-        // Find available volunteer
         matchedVolunteer = db.volunteers.find((v) => v.available) || db.volunteers[0];
 
         if (matchedNGO && matchedVolunteer) {
@@ -595,8 +734,16 @@ class ApiService {
             ngo_id: matchedNGO.id,
             volunteer_id: matchedVolunteer.id,
             status: "assigned",
+            dispatch_status: "ready_for_pickup",
             assigned_at: new Date().toISOString(),
             resolved_at: null,
+            destination: newNeed.location_text,
+            latitude: newNeed.latitude,
+            longitude: newNeed.longitude,
+            supplies: `${newNeed.quantity} ${newNeed.unit} of ${newNeed.item}`,
+            quantity: newNeed.quantity,
+            unit: newNeed.unit,
+            instructions: `Deliver ${newNeed.quantity} ${newNeed.unit} from ${matchedNGO.name} to ${newNeed.location_text}.`,
           };
           newNeed.status = "assigned";
           db.assignments.unshift(newAssignment);
@@ -614,12 +761,11 @@ class ApiService {
           assignment: newAssignment,
           volunteer: matchedVolunteer,
           ngo: matchedNGO,
-          message: "Emergency report successfully processed and structured by SETU engine.",
+          message: "Emergency report successfully recorded in SETU dispatch system.",
         },
       };
     }
 
-    // Live endpoint: Try POST /needs, fallback to /webhook
     let res = await this.request('/needs', {
       method: 'POST',
       body: JSON.stringify({
@@ -645,8 +791,234 @@ class ApiService {
   }
 
   // --------------------------------------------------------------------------
-  // 5. Accept Assignment Action (POST /assignments/{id}/accept)
+  // 6. NGO Capabilities (Phase 3 Backend Contracts)
   // --------------------------------------------------------------------------
+  static async getNGOs() {
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      return { ok: true, mode: 'mock', data: db.ngos };
+    }
+    const res = await this.request('/ngos');
+    return res;
+  }
+
+  static async getNGO(ngoId) {
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      const ngo = db.ngos.find((n) => n.id === ngoId);
+      if (!ngo) return { ok: false, error: `NGO #${ngoId} not found` };
+      return { ok: true, mode: 'mock', data: ngo };
+    }
+    const res = await this.request(`/ngos/${ngoId}`);
+    return res;
+  }
+
+  static async updateNGOInventory(ngoId, needType, newQuantity, notes = '') {
+    const qty = Math.max(0, parseInt(newQuantity, 10) || 0);
+
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      const ngo = db.ngos.find((n) => n.id === ngoId);
+      if (!ngo) return { ok: false, error: `NGO #${ngoId} not found` };
+
+      const item = ngo.capacity.find((c) => c.need_type === needType);
+      if (item) {
+        item.quantity = qty;
+        if (notes) item.last_updated_note = notes;
+        item.last_updated_at = new Date().toISOString();
+      } else {
+        ngo.capacity.push({
+          need_type: needType,
+          item_name: `${needType.toUpperCase()} Supplies`,
+          quantity: qty,
+          reserved: 0,
+          unit: "units",
+          threshold: Math.max(10, Math.floor(qty * 0.2)),
+          last_updated_note: notes,
+          last_updated_at: new Date().toISOString(),
+        });
+      }
+
+      saveMockDatabase(db);
+      return {
+        ok: true,
+        mode: 'mock',
+        data: ngo,
+        message: `Inventory updated successfully for ${needType}: ${qty} available.`,
+      };
+    }
+
+    // Call live backend endpoint
+    let res = await this.request(`/ngos/${ngoId}/inventory`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        need_type: needType,
+        quantity: qty,
+        notes,
+      }),
+    });
+
+    if (!res.ok && res.status === 404) {
+      res = await this.request(`/ngos/${ngoId}/capacity`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          need_type: needType,
+          quantity: qty,
+        }),
+      });
+    }
+
+    return res;
+  }
+
+  static async getNGODispatches(ngoId) {
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      const dispatches = db.assignments.filter((a) => a.ngo_id === ngoId);
+      const enriched = dispatches.map((a) => {
+        const need = db.needs.find((n) => n.id === a.need_id) || null;
+        const volunteer = db.volunteers.find((v) => v.id === a.volunteer_id) || null;
+        return {
+          ...a,
+          need,
+          volunteer,
+        };
+      });
+      return { ok: true, mode: 'mock', data: enriched };
+    }
+
+    let res = await this.request(`/ngos/${ngoId}/dispatches`);
+    if (!res.ok && res.status === 404) {
+      res = await this.request(`/ngos/${ngoId}/assignments`);
+    }
+    return res;
+  }
+
+  static async getNGONeeds(ngoId) {
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      const matchedAssignments = db.assignments.filter((a) => a.ngo_id === ngoId);
+      const matchedNeedIds = new Set(matchedAssignments.map((a) => a.need_id));
+
+      const ngo = db.ngos.find((n) => n.id === ngoId);
+      const coveredTypes = new Set(ngo ? ngo.capacity.map((c) => c.need_type) : []);
+
+      // Return both directly assigned needs and open needs that match capacity
+      const relevantNeeds = db.needs
+        .filter((n) => matchedNeedIds.has(n.id) || (n.status === 'open' && coveredTypes.has(n.need_type)))
+        .map((need) => {
+          const assignment = matchedAssignments.find((a) => a.need_id === need.id) || null;
+          const volunteer = assignment ? db.volunteers.find((v) => v.id === assignment.volunteer_id) : null;
+          return {
+            ...need,
+            assignment,
+            volunteer,
+          };
+        });
+
+      return { ok: true, mode: 'mock', data: relevantNeeds };
+    }
+
+    let res = await this.request(`/ngos/${ngoId}/needs`);
+    return res;
+  }
+
+  static async confirmNGODispatch(assignmentId) {
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      const assignment = db.assignments.find((a) => a.id === assignmentId);
+      if (!assignment) return { ok: false, error: `Assignment #${assignmentId} not found` };
+
+      assignment.dispatch_status = "dispatched";
+      if (assignment.status === "assigned") assignment.status = "in_progress";
+      saveMockDatabase(db);
+
+      return {
+        ok: true,
+        mode: 'mock',
+        data: assignment,
+        message: `Dispatch #${assignmentId} confirmed and logged for field delivery.`,
+      };
+    }
+
+    const res = await this.request(`/assignments/${assignmentId}/dispatch`, {
+      method: 'PATCH',
+      body: JSON.stringify({ dispatch_status: 'dispatched' }),
+    });
+    return res;
+  }
+
+  // --------------------------------------------------------------------------
+  // 7. Volunteer Capabilities (Phase 4 Backend Contracts)
+  // --------------------------------------------------------------------------
+  static async getVolunteers() {
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      return { ok: true, mode: 'mock', data: db.volunteers };
+    }
+    const res = await this.request('/volunteers');
+    return res;
+  }
+
+  static async getVolunteer(volunteerId) {
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      const volunteer = db.volunteers.find((v) => v.id === volunteerId);
+      if (!volunteer) return { ok: false, error: `Volunteer #${volunteerId} not found` };
+      return { ok: true, mode: 'mock', data: volunteer };
+    }
+    const res = await this.request(`/volunteers/${volunteerId}`);
+    return res;
+  }
+
+  static async updateVolunteerAvailability(volunteerId, available) {
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      const volunteer = db.volunteers.find((v) => v.id === volunteerId);
+      if (!volunteer) return { ok: false, error: `Volunteer #${volunteerId} not found` };
+
+      volunteer.available = Boolean(available);
+      saveMockDatabase(db);
+
+      return {
+        ok: true,
+        mode: 'mock',
+        data: volunteer,
+        message: `Status updated to ${volunteer.available ? 'Available' : 'Unavailable'}.`,
+      };
+    }
+
+    const res = await this.request(`/volunteers/${volunteerId}/availability`, {
+      method: 'PATCH',
+      body: JSON.stringify({ available: Boolean(available) }),
+    });
+    return res;
+  }
+
+  static async getVolunteerAssignments(volunteerId) {
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      const assigned = db.assignments.filter((a) => a.volunteer_id === volunteerId);
+      const enriched = assigned.map((a) => {
+        const need = db.needs.find((n) => n.id === a.need_id) || null;
+        const ngo = db.ngos.find((n) => n.id === a.ngo_id) || null;
+        return {
+          ...a,
+          need,
+          ngo,
+        };
+      });
+
+      return { ok: true, mode: 'mock', data: enriched };
+    }
+
+    let res = await this.request(`/volunteers/${volunteerId}/assignments`);
+    if (!res.ok && res.status === 404) {
+      res = await this.request(`/assignment/volunteer/${volunteerId}`);
+    }
+    return res;
+  }
+
   static async acceptAssignment(assignmentId, volunteerId = "V001") {
     if (this.isMockMode()) {
       const db = loadMockDatabase();
@@ -655,11 +1027,9 @@ class ApiService {
         return { ok: false, error: `Assignment #${assignmentId} could not be found` };
       }
 
-      // Update assignment
       assignment.status = "accepted";
       assignment.volunteer_id = volunteerId;
 
-      // Update associated need status to in_progress / assigned
       const need = db.needs.find((n) => n.id === assignment.need_id);
       if (need) {
         need.status = "assigned";
@@ -677,7 +1047,6 @@ class ApiService {
       };
     }
 
-    // Live API try POST /assignments/{id}/accept, fallback to /assignment/volunteer/{need_id}
     let res = await this.request(`/assignments/${assignmentId}/accept`, {
       method: 'POST',
       body: JSON.stringify({ volunteer_id: volunteerId }),
@@ -692,9 +1061,45 @@ class ApiService {
     return res;
   }
 
-  // --------------------------------------------------------------------------
-  // 6. Mark Assignment Resolved Action (PATCH /assignments/{id}/resolve)
-  // --------------------------------------------------------------------------
+  static async updateAssignmentProgress(assignmentId, notes = '') {
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      const assignment = db.assignments.find((a) => a.id === assignmentId || a.need_id === assignmentId);
+      if (!assignment) {
+        return { ok: false, error: `Assignment #${assignmentId} could not be found` };
+      }
+
+      assignment.status = "in_progress";
+      assignment.dispatch_status = "in_transit";
+      if (notes) assignment.field_notes = notes;
+
+      const need = db.needs.find((n) => n.id === assignment.need_id);
+      if (need) need.status = "in_progress";
+
+      saveMockDatabase(db);
+      return {
+        ok: true,
+        mode: 'mock',
+        data: assignment,
+        message: `Task #${assignment.id} marked as In Progress (En Route).`,
+      };
+    }
+
+    let res = await this.request(`/assignments/${assignmentId}/progress`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'in_progress', notes }),
+    });
+
+    if (!res.ok && res.status === 404) {
+      res = await this.request(`/assignments/${assignmentId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'in_progress', notes }),
+      });
+    }
+
+    return res;
+  }
+
   static async resolveAssignment(assignmentId, resolutionNotes = "Relief aid successfully handed over on site.") {
     if (this.isMockMode()) {
       const db = loadMockDatabase();
@@ -704,11 +1109,22 @@ class ApiService {
       }
 
       assignment.status = "resolved";
+      assignment.dispatch_status = "delivered";
       assignment.resolved_at = new Date().toISOString();
+      assignment.resolution_notes = resolutionNotes;
 
       const need = db.needs.find((n) => n.id === assignment.need_id);
       if (need) {
         need.status = "resolved";
+      }
+
+      // If associated with an NGO capacity, deduct from reserved
+      const ngo = db.ngos.find((n) => n.id === assignment.ngo_id);
+      if (ngo && assignment.quantity && need?.need_type) {
+        const cap = ngo.capacity.find((c) => c.need_type === need.need_type);
+        if (cap && cap.reserved !== undefined) {
+          cap.reserved = Math.max(0, cap.reserved - assignment.quantity);
+        }
       }
 
       saveMockDatabase(db);
@@ -724,7 +1140,6 @@ class ApiService {
       };
     }
 
-    // Live API call: PATCH /assignments/{id}/resolve or /assignment/{id}/resolve
     let res = await this.request(`/assignments/${assignmentId}/resolve`, {
       method: 'PATCH',
       body: JSON.stringify({ notes: resolutionNotes }),
@@ -740,9 +1155,6 @@ class ApiService {
     return res;
   }
 
-  // --------------------------------------------------------------------------
-  // 7. Get Active Assignments for Responder Panel
-  // --------------------------------------------------------------------------
   static async getActiveAssignments(volunteerId = "V001") {
     if (this.isMockMode()) {
       const db = loadMockDatabase();
