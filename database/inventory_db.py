@@ -1,3 +1,4 @@
+from typing import Tuple, Optional
 import uuid
 import math
 from datetime import datetime, timezone
@@ -23,21 +24,90 @@ COMPATIBLE_RESOURCE_CATEGORIES = {
     "shelter": {"shelter", "tarpaulins", "blankets", "tents", "tarps", "mats"},
 }
 
+RESOURCE_UNIT_RULES = {
+    "food": {
+        "valid_units": {"meals", "packets", "food packets", "boxes", "rations", "kg", "servings", "units", "kits", "bags"},
+        "default_unit": "meals",
+        "description": "meals, packets, rations, kg, boxes, servings, or units",
+    },
+    "meals": {
+        "valid_units": {"meals", "packets", "food packets", "boxes", "rations", "kg", "servings", "units", "kits", "bags"},
+        "default_unit": "meals",
+        "description": "meals, packets, rations, kg, boxes, servings, or units",
+    },
+    "water": {
+        "valid_units": {"liters", "litres", "l", "bottles", "cans", "water cans", "pouches", "tanks", "gallons", "units"},
+        "default_unit": "liters",
+        "description": "liters, bottles, cans, pouches, tanks, or units",
+    },
+    "medical": {
+        "valid_units": {"kits", "first aid kits", "boxes", "packs", "strips", "units", "vials", "doses", "items"},
+        "default_unit": "kits",
+        "description": "kits, boxes, packs, strips, vials, or units",
+    },
+    "shelter": {
+        "valid_units": {"kits", "sets", "tents", "tarpaulins", "tarps", "blankets", "mats", "units", "pieces"},
+        "default_unit": "kits",
+        "description": "kits, tents, tarpaulins, blankets, mats, sets, or units",
+    },
+    "rescue": {
+        "valid_units": {"boats", "jackets", "life vests", "life jackets", "ropes", "units", "sets", "kits", "teams"},
+        "default_unit": "units",
+        "description": "boats, life vests, ropes, sets, kits, or units",
+    },
+}
+
+def validate_resource_unit(resource_type: str, unit: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validates that the provided unit is compatible with the resource type.
+    Returns (is_valid: bool, error_message: Optional[str]).
+    """
+    res = (resource_type or "").strip().lower()
+    u = (unit or "").strip().lower()
+
+    if not res:
+        return False, "resource_type cannot be empty"
+    if not u:
+        return False, "unit cannot be empty"
+
+    rule = RESOURCE_UNIT_RULES.get(res)
+    if rule:
+        if u not in rule["valid_units"]:
+            return False, (
+                f"Incompatible unit '{unit}' for resource '{resource_type}'. "
+                f"Appropriate units for {resource_type}: {rule['description']}."
+            )
+    return True, None
+
 def add_or_update_inventory(ngo_id: str, resource_type: str, total_quantity: int, unit: str = "units") -> str:
     """
     Adds or updates an inventory item for an NGO.
     Concurrency hardened:
-    - Validates non-negative quantity.
+    - Validates non-negative quantity and resource-unit compatibility.
+    - Verifies NGO existence before updating inventory.
     - Locks existing inventory row (FOR UPDATE) to prevent race conditions during allocation.
     - Enforces total_quantity >= reserved_quantity to preserve active allocations and prevent negative available stock.
     - Uses ON CONFLICT to handle concurrent first-insert races safely.
     """
+    if not ngo_id or not str(ngo_id).strip():
+        raise ValueError("NGO ID is required")
     if total_quantity < 0:
         raise ValueError("total_quantity must be non-negative")
     resource_type = resource_type.strip().lower()
+    unit = (unit or "units").strip().lower()
+
+    is_valid_unit, unit_err = validate_resource_unit(resource_type, unit)
+    if not is_valid_unit:
+        raise ValueError(unit_err)
+
     doc_id = uuid.uuid4().hex
 
     with get_db_cursor(commit=True) as cur:
+        # Verify NGO exists before attempting inventory mutation
+        cur.execute("SELECT 1 FROM ngos WHERE id = %s", (ngo_id,))
+        if not cur.fetchone():
+            raise LookupError(f"NGO '{ngo_id}' not found")
+
         # Check and lock if row already exists for this NGO
         cur.execute(
             """

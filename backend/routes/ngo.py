@@ -2,7 +2,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request
 from backend.models import NGOInput, NGOInventoryInput
 from database.ngos_db import save_ngo, get_ngo, get_all_ngos, get_ngo_by_email
-from database.inventory_db import add_or_update_inventory, get_ngo_inventory
+from database.inventory_db import add_or_update_inventory, get_ngo_inventory, validate_resource_unit
 from backend.auth import verify_token, optional_verify_token
 from database.geocoding import get_coordinates
 from database.needs_db import get_need_by_id
@@ -23,7 +23,22 @@ def set_ngo_inventory_endpoint(ngo_id: str, data: NGOInventoryInput, token: dict
     elif role not in ["system", "admin", "coordinator"]:
         raise HTTPException(status_code=403, detail="Access denied: insufficient permissions to modify NGO inventory")
 
-    inv_id = add_or_update_inventory(ngo_id, data.resource_type, data.total_quantity, data.unit)
+    is_valid_unit, unit_err = validate_resource_unit(data.resource_type, data.unit)
+    if not is_valid_unit:
+        raise HTTPException(status_code=400, detail=unit_err)
+
+    if data.total_quantity < 0:
+        raise HTTPException(status_code=400, detail="total_quantity must be non-negative")
+
+    try:
+        inv_id = add_or_update_inventory(ngo_id, data.resource_type, data.total_quantity, data.unit)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error updating inventory: {str(e)}")
+
     return {
         "status": "success",
         "inventory_id": inv_id,

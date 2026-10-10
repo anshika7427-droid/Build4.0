@@ -123,6 +123,8 @@ from fastapi.responses import FileResponse
 @app.get("/")
 def home(request: Request):
     if "text/html" in request.headers.get("accept", ""):
+        if os.path.exists("frontend/dist/index.html"):
+            return FileResponse("frontend/dist/index.html")
         if os.path.exists("frontendnew/landing.html"):
             return FileResponse("frontendnew/landing.html")
     return {"message": "Setu Backend Active", "env": "Cloud Run"}
@@ -296,10 +298,26 @@ def get_ngo_inventory_alias(ngo_id: str, token: dict = Depends(verify_token)):
 def set_ngo_inventory_alias(ngo_id: str, payload: dict, token: dict = Depends(verify_token)):
     from backend.routes.ngo import set_ngo_inventory_endpoint
     from backend.models import NGOInventoryInput
+    from pydantic import ValidationError
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid request body, expected JSON object")
+
     res_type = payload.get("resource_type") or payload.get("need_type") or "food"
-    qty = payload.get("total_quantity") if "total_quantity" in payload else payload.get("quantity", 0)
+    qty_raw = payload.get("total_quantity") if "total_quantity" in payload else payload.get("quantity", 0)
+    try:
+        qty = int(qty_raw)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail=f"Invalid quantity: '{qty_raw}' must be an integer")
+
     unit = payload.get("unit") or "units"
-    return set_ngo_inventory_endpoint(ngo_id, NGOInventoryInput(resource_type=res_type, total_quantity=int(qty), unit=unit), token=token)
+
+    try:
+        data = NGOInventoryInput(resource_type=res_type, total_quantity=qty, unit=unit)
+    except (ValidationError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return set_ngo_inventory_endpoint(ngo_id, data, token=token)
 
 
 @app.get("/ngos/{ngo_id}/dispatches")
@@ -346,5 +364,7 @@ def resolve_assignment_alias(assignment_id: str, token: dict = Depends(verify_to
 
 
 from fastapi.staticfiles import StaticFiles
-if os.path.isdir("frontendnew"):
+if os.path.isdir("frontend/dist/assets"):
+    app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
+elif os.path.isdir("frontendnew"):
     app.mount("/", StaticFiles(directory="frontendnew", html=True), name="static")

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, AliasChoices
+from pydantic import BaseModel, Field, AliasChoices, model_validator
 from typing import List, Optional
 
 
@@ -69,6 +69,16 @@ class NGOInventoryInput(BaseModel):
     resource_type: str
     total_quantity: int
     unit: str = "units"
+
+    @model_validator(mode="after")
+    def validate_inventory(self):
+        if self.total_quantity < 0:
+            raise ValueError("total_quantity must be non-negative")
+        from database.inventory_db import validate_resource_unit
+        is_valid, err = validate_resource_unit(self.resource_type, self.unit)
+        if not is_valid:
+            raise ValueError(err)
+        return self
 
 
 class VolunteerStatusInput(BaseModel):
