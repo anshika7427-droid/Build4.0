@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import {
   Users,
+  Building2,
   CheckCircle2,
   AlertTriangle,
   Clock,
   MapPin,
   Navigation,
   Phone,
-  Building2,
   RefreshCw,
   Check,
   ShieldCheck,
@@ -18,7 +17,7 @@ import {
   AlertOctagon
 } from 'lucide-react';
 import ApiService from '../services/api';
-import SetuLogo from '../components/SetuLogo';
+import DashboardNavbar from '../components/DashboardNavbar';
 
 export default function VolunteerDashboardPage() {
   // --------------------------------------------------------------------------
@@ -208,12 +207,12 @@ export default function VolunteerDashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#F7F9FC] text-[#17324F] font-sans selection:bg-teal-100 selection:text-teal-900 flex flex-col">
-      {/* Toast Feedback Notification */}
+      {/* Toast Notification */}
       {toast && (
         <div
           role="status"
           aria-live="polite"
-          className={`fixed bottom-6 right-6 z-50 px-5 py-3.5 rounded-xl shadow-xl flex items-center gap-3 border text-sm font-semibold transition-all duration-300 animate-slide-up ${
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 border text-sm font-semibold transition-all duration-300 animate-slide-up ${
             toast.type === 'error'
               ? 'bg-red-50 text-red-900 border-red-300'
               : toast.type === 'info'
@@ -233,81 +232,30 @@ export default function VolunteerDashboardPage() {
       )}
 
       {/* ==================================================================== */}
-      {/* 1. TOP HEADER & BRAND LOCKUP                                         */}
+      {/* 1. SHARED UNIFIED NAVBAR                                             */}
       {/* ==================================================================== */}
-      <header className="bg-white border-b border-[#E1E8F0] sticky top-0 z-40 shadow-xs">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 h-18 sm:h-20 flex items-center justify-between gap-3">
-          {/* Brand Logo & Mobile Tag */}
-          <div className="flex items-center gap-3">
-            <Link
-              to="/"
-              className="focus:outline-none focus:ring-2 focus:ring-[#16877F] rounded-lg"
-              aria-label="SETU Home"
-            >
-              <SetuLogo variant="light" iconSize={36} />
-            </Link>
-            <span className="hidden sm:inline-block px-2 py-0.5 bg-teal-50 text-[#16877F] text-xs font-bold uppercase tracking-wider rounded border border-teal-200">
-              Field Responder
-            </span>
-          </div>
-
-          {/* Switch Demo Volunteer & System Mode */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Volunteer Profile Switcher */}
-            <div className="flex items-center gap-1.5 bg-[#F7F9FC] border border-[#E1E8F0] rounded-xl px-2.5 py-1 text-xs">
-              <Users className="w-3.5 h-3.5 text-[#16877F] shrink-0" />
-              <label htmlFor="volunteer-select" className="sr-only">Switch Demo Volunteer</label>
-              <select
-                id="volunteer-select"
-                value={selectedVolunteerId}
-                onChange={(e) => setSelectedVolunteerId(e.target.value)}
-                className="bg-transparent font-bold text-[#17324F] focus:outline-none cursor-pointer max-w-[130px] sm:max-w-none truncate"
-              >
-                {volunteers.map((vol) => (
-                  <option key={vol.id} value={vol.id}>
-                    {vol.name} ({vol.id})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Mode Switcher */}
-            <button
-              onClick={toggleSystemMode}
-              className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition ${
-                systemMode === 'mock'
-                  ? 'bg-amber-50 text-amber-900 border-amber-300'
-                  : 'bg-emerald-50 text-emerald-900 border-emerald-300'
-              }`}
-              title="Click to toggle between Demo Mode and Live Backend"
-            >
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  systemMode === 'mock' ? 'bg-amber-500' : 'bg-emerald-500'
-                }`}
-              />
-              <span className="hidden sm:inline">
-                {systemMode === 'mock' ? 'Demo' : 'Live'}
-              </span>
-            </button>
-
-            {/* NGO View Link */}
-            <Link
-              to="/ngo-dashboard"
-              className="hidden md:inline-flex items-center gap-1 text-xs font-bold text-[#526277] hover:text-[#17324F] hover:bg-slate-100 px-2.5 py-1 rounded-lg transition"
-            >
-              <Building2 className="w-3.5 h-3.5" />
-              <span>NGO View</span>
-            </Link>
-          </div>
-        </div>
-      </header>
+      <DashboardNavbar
+        role="volunteer"
+        roleBadge="FIELD RESPONDER"
+        selectorIcon={Users}
+        selectorLabel="Switch Demo Volunteer"
+        selectorValue={selectedVolunteerId}
+        selectorOptions={volunteers.map((v) => ({ id: v.id, label: `${v.name} (${v.id})` }))}
+        onSelectorChange={setSelectedVolunteerId}
+        systemMode={systemMode}
+        onToggleMode={toggleSystemMode}
+        otherDashboard={{
+          to: '/ngo-dashboard',
+          label: 'NGO Depot',
+          icon: Building2,
+        }}
+      />
 
       {/* ==================================================================== */}
-      {/* 2. BACKEND MATCHING & HACKATHON DISCLAIMER                           */}
+      {/* 2. BACKEND MATCHING & HACKATHON DISCLAIMER NOTICE                    */}
       {/* ==================================================================== */}
-      <div className="bg-[#17324F] text-slate-200 border-b border-slate-700 py-2 px-4 text-xs">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
+      <div className="bg-[#17324F] text-slate-200 border-b border-slate-700/80 py-2 px-4 text-xs">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="px-1.5 py-0.2 rounded bg-teal-800 text-teal-200 font-bold uppercase text-[10px] shrink-0">
               Backend Assigned
@@ -316,7 +264,7 @@ export default function VolunteerDashboardPage() {
               Showing assignments routed by the SETU backend matching engine for this responder.
             </span>
           </div>
-          <span className="text-amber-300 font-medium shrink-0 hidden sm:inline">
+          <span className="text-amber-300 font-medium shrink-0 hidden sm:inline text-[11px]">
             Demo Responder Workspace
           </span>
         </div>
@@ -326,12 +274,12 @@ export default function VolunteerDashboardPage() {
       {/* 3. VOLUNTEER IDENTITY & AVAILABILITY STATUS BAR                      */}
       {/* ==================================================================== */}
       <section className="bg-white border-b border-[#E1E8F0] py-4 sm:py-5">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             {/* Profile Info */}
             <div className="space-y-1">
               <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-xl sm:text-2xl font-extrabold text-[#17324F] tracking-tight">
+                <h1 className="text-xl sm:text-2xl font-black text-[#17324F] tracking-tight">
                   {volunteer?.name || 'Field Responder'}
                 </h1>
                 {volunteer?.verified && (
@@ -344,17 +292,17 @@ export default function VolunteerDashboardPage() {
                   {selectedVolunteerId}
                 </span>
               </div>
-              <p className="text-xs sm:text-sm text-[#526277] font-medium">
+              <p className="text-xs text-[#526277] font-medium">
                 {volunteer?.role_title || 'Emergency Logistics Responder'} • Skills: {volunteer?.skills?.join(', ').replace(/_/g, ' ') || 'field aid'}
               </p>
             </div>
 
-            {/* Availability Toggle CTA (High Priority for Field Workers) */}
-            <div className="flex items-center gap-3 self-start sm:self-auto shrink-0">
+            {/* Availability Toggle CTA */}
+            <div className="flex items-center gap-2.5 self-start sm:self-auto shrink-0">
               <button
                 type="button"
                 onClick={handleToggleAvailability}
-                className={`min-h-[44px] px-4 py-2 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2.5 border transition shadow-xs ${
+                className={`min-h-[40px] px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-2 border transition shadow-xs ${
                   volunteer?.available
                     ? 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
                     : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
@@ -362,7 +310,7 @@ export default function VolunteerDashboardPage() {
                 title="Toggle availability status in backend"
               >
                 <span
-                  className={`w-3 h-3 rounded-full ${
+                  className={`w-2.5 h-2.5 rounded-full ${
                     volunteer?.available ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
                   }`}
                 />
@@ -375,28 +323,28 @@ export default function VolunteerDashboardPage() {
                 type="button"
                 onClick={loadVolunteerData}
                 disabled={isLoading}
-                className="min-h-[44px] w-11 flex items-center justify-center bg-white hover:bg-slate-50 text-slate-700 rounded-xl border border-slate-300 shadow-xs transition"
+                className="h-10 w-10 flex items-center justify-center bg-white hover:bg-slate-50 text-slate-700 rounded-xl border border-slate-300 shadow-xs transition"
                 title="Refresh tasks"
                 aria-label="Refresh tasks"
               >
-                <RefreshCw className={`w-4 h-4 text-[#16877F] ${isLoading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 text-[#16877F] ${isLoading ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
 
-          {/* Quick Metrics Bar */}
-          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
-            <div className="bg-[#F7F9FC] p-2.5 rounded-xl text-center border border-slate-200/70">
-              <span className="text-xs text-slate-500 block font-semibold">New Assigned</span>
-              <strong className="text-lg font-black text-amber-600">{newCount}</strong>
+          {/* Quick Metrics Strip */}
+          <div className="grid grid-cols-3 gap-2.5 pt-2 border-t border-slate-100">
+            <div className="bg-[#F7F9FC] p-3 rounded-xl text-center border border-slate-200/70">
+              <span className="text-[11px] text-slate-500 block font-bold uppercase tracking-wider">New Assigned</span>
+              <strong className="text-xl font-black text-amber-600">{newCount}</strong>
             </div>
-            <div className="bg-[#F7F9FC] p-2.5 rounded-xl text-center border border-slate-200/70">
-              <span className="text-xs text-slate-500 block font-semibold">In Progress</span>
-              <strong className="text-lg font-black text-blue-600">{inProgressCount}</strong>
+            <div className="bg-[#F7F9FC] p-3 rounded-xl text-center border border-slate-200/70">
+              <span className="text-[11px] text-slate-500 block font-bold uppercase tracking-wider">In Progress</span>
+              <strong className="text-xl font-black text-blue-600">{inProgressCount}</strong>
             </div>
-            <div className="bg-[#F7F9FC] p-2.5 rounded-xl text-center border border-slate-200/70">
-              <span className="text-xs text-slate-500 block font-semibold">Completed</span>
-              <strong className="text-lg font-black text-emerald-600">{completedCount}</strong>
+            <div className="bg-[#F7F9FC] p-3 rounded-xl text-center border border-slate-200/70">
+              <span className="text-[11px] text-slate-500 block font-bold uppercase tracking-wider">Completed</span>
+              <strong className="text-xl font-black text-emerald-600">{completedCount}</strong>
             </div>
           </div>
         </div>
@@ -405,12 +353,12 @@ export default function VolunteerDashboardPage() {
       {/* ==================================================================== */}
       {/* 4. MAIN TASK FEED & FILTER TABS                                      */}
       {/* ==================================================================== */}
-      <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 py-6 w-full space-y-6">
+      <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 py-6 w-full space-y-5">
         {/* Status Filter Tabs (Large Touch Friendly for Mobile) */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
           <button
             onClick={() => setStatusFilter('ALL')}
-            className={`min-h-[44px] px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition border ${
+            className={`min-h-[40px] px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition border ${
               statusFilter === 'ALL'
                 ? 'bg-[#17324F] text-white border-[#17324F]'
                 : 'bg-white text-[#526277] border-slate-200 hover:border-slate-300'
@@ -420,7 +368,7 @@ export default function VolunteerDashboardPage() {
           </button>
           <button
             onClick={() => setStatusFilter('NEW')}
-            className={`min-h-[44px] px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition border flex items-center gap-1.5 ${
+            className={`min-h-[40px] px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition border flex items-center gap-1.5 ${
               statusFilter === 'NEW'
                 ? 'bg-amber-600 text-white border-amber-600'
                 : 'bg-white text-amber-800 border-amber-200 hover:bg-amber-50'
@@ -433,7 +381,7 @@ export default function VolunteerDashboardPage() {
           </button>
           <button
             onClick={() => setStatusFilter('IN_PROGRESS')}
-            className={`min-h-[44px] px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition border flex items-center gap-1.5 ${
+            className={`min-h-[40px] px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition border flex items-center gap-1.5 ${
               statusFilter === 'IN_PROGRESS'
                 ? 'bg-blue-600 text-white border-blue-600'
                 : 'bg-white text-blue-800 border-blue-200 hover:bg-blue-50'
@@ -446,7 +394,7 @@ export default function VolunteerDashboardPage() {
           </button>
           <button
             onClick={() => setStatusFilter('COMPLETED')}
-            className={`min-h-[44px] px-4 py-2 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition border flex items-center gap-1.5 ${
+            className={`min-h-[40px] px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold whitespace-nowrap transition border flex items-center gap-1.5 ${
               statusFilter === 'COMPLETED'
                 ? 'bg-emerald-700 text-white border-emerald-700'
                 : 'bg-white text-emerald-800 border-emerald-200 hover:bg-emerald-50'
@@ -461,11 +409,11 @@ export default function VolunteerDashboardPage() {
 
         {/* Task Cards Feed */}
         {filteredTasks.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-[#E1E8F0] p-10 text-center space-y-3">
-            <CheckCircle2 className="w-12 h-12 text-teal-600 mx-auto" />
-            <h3 className="text-lg font-bold text-[#17324F]">No Active Tasks in this Category</h3>
-            <p className="text-xs sm:text-sm text-slate-500 max-w-sm mx-auto">
-              You are all caught up! When the SETU dispatch engine assigns a verified mission in your area, it will appear here.
+          <div className="bg-white rounded-xl border border-[#E1E8F0] p-8 text-center space-y-2.5">
+            <CheckCircle2 className="w-10 h-10 text-teal-600 mx-auto" />
+            <h3 className="text-base font-bold text-[#17324F]">No Active Tasks in this Category</h3>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto">
+              When the SETU dispatch engine assigns an emergency mission in your area, it will appear here.
             </p>
           </div>
         ) : (
@@ -484,7 +432,7 @@ export default function VolunteerDashboardPage() {
               return (
                 <div
                   key={task.id}
-                  className={`bg-white rounded-2xl border shadow-xs transition overflow-hidden ${
+                  className={`bg-white rounded-xl border shadow-xs transition overflow-hidden ${
                     isAssigned
                       ? 'border-amber-300 ring-1 ring-amber-100'
                       : isInProgress
@@ -496,7 +444,7 @@ export default function VolunteerDashboardPage() {
                 >
                   {/* Task Card Header Banner */}
                   <div
-                    className={`px-5 py-3 border-b flex items-center justify-between gap-2 text-xs font-bold ${
+                    className={`px-4 sm:px-5 py-2.5 border-b flex items-center justify-between gap-2 text-xs font-bold ${
                       isAssigned
                         ? 'bg-amber-50/80 text-amber-900 border-amber-200'
                         : isInProgress
@@ -522,44 +470,44 @@ export default function VolunteerDashboardPage() {
                       {isAccepted && (
                         <span className="inline-flex items-center gap-1 text-teal-800 uppercase tracking-wider text-[11px]">
                           <Check className="w-3.5 h-3.5" />
-                          <span>Accepted — Ready to Roll</span>
+                          <span>Accepted — Ready</span>
                         </span>
                       )}
                       {isInProgress && (
                         <span className="inline-flex items-center gap-1 text-blue-800 uppercase tracking-wider text-[11px]">
                           <Navigation className="w-3.5 h-3.5 animate-pulse" />
-                          <span>En Route / Delivering</span>
+                          <span>En Route</span>
                         </span>
                       )}
                       {isResolved && (
                         <span className="inline-flex items-center gap-1 text-emerald-800 uppercase tracking-wider text-[11px]">
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Delivered &amp; Verified</span>
+                          <span>Delivered</span>
                         </span>
                       )}
                     </div>
                   </div>
 
                   {/* Task Card Body */}
-                  <div className="p-5 sm:p-6 space-y-4">
+                  <div className="p-4 sm:p-5 space-y-3.5">
                     {/* Supplies & Title */}
                     <div className="space-y-1">
-                      <div className="text-xs uppercase tracking-wider font-bold text-slate-500">
+                      <span className="text-[11px] uppercase tracking-wider font-bold text-slate-500 block">
                         Mission Payload
-                      </div>
-                      <h2 className="text-lg sm:text-xl font-black text-[#17324F] leading-snug">
+                      </span>
+                      <h2 className="text-base sm:text-lg font-black text-[#17324F] leading-snug">
                         {task.supplies || `${task.quantity} ${task.unit} of emergency relief`}
                       </h2>
                     </div>
 
                     {/* Destination & Map Navigation CTA */}
-                    <div className="bg-[#F7F9FC] rounded-xl p-4 border border-slate-200/80 space-y-3">
+                    <div className="bg-[#F7F9FC] rounded-xl p-3.5 border border-slate-200/80 space-y-2.5">
                       <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div className="space-y-1">
-                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        <div className="space-y-0.5">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
                             Drop-off Destination
                           </span>
-                          <div className="flex items-center gap-2 text-sm font-bold text-[#17324F]">
+                          <div className="flex items-center gap-1.5 text-sm font-bold text-[#17324F]">
                             <MapPin className="w-4 h-4 text-red-600 shrink-0" />
                             <span>{task.destination || task.need?.location_text || 'Relief Location'}</span>
                           </div>
@@ -570,10 +518,10 @@ export default function VolunteerDashboardPage() {
                           href={mapsUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="min-h-[40px] px-3.5 py-2 bg-white hover:bg-slate-50 text-[#17324F] font-bold text-xs rounded-xl border border-slate-300 shadow-xs flex items-center gap-2 transition"
+                          className="min-h-[36px] px-3 py-1.5 bg-white hover:bg-slate-50 text-[#17324F] font-bold text-xs rounded-xl border border-slate-300 shadow-xs flex items-center gap-1.5 transition"
                         >
                           <Navigation className="w-3.5 h-3.5 text-[#16877F]" />
-                          <span>Open Google Maps</span>
+                          <span>Open Maps</span>
                           <ExternalLink className="w-3 h-3 text-slate-400" />
                         </a>
                       </div>
@@ -582,7 +530,7 @@ export default function VolunteerDashboardPage() {
                       {task.ngo && (
                         <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between gap-2 text-xs text-slate-600 flex-wrap">
                           <div className="flex items-center gap-1.5">
-                            <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                            <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                             <span>Depot: <strong>{task.ngo.name}</strong></span>
                           </div>
                           {task.ngo.phone && (
@@ -623,16 +571,16 @@ export default function VolunteerDashboardPage() {
                       </div>
                     )}
 
-                    {/* Action Buttons (Large Touch-Friendly for Mobile Responders) */}
-                    <div className="pt-2 flex items-center gap-3 flex-wrap">
+                    {/* Action Buttons (Touch-Friendly for Mobile Responders) */}
+                    <div className="pt-1 flex items-center gap-2.5 flex-wrap">
                       {isAssigned && (
                         <button
                           type="button"
                           onClick={() => handleAcceptTask(task.id)}
                           disabled={actionLoadingId === task.id}
-                          className="flex-1 min-h-[48px] px-6 py-3 bg-[#16877F] hover:bg-teal-800 text-white font-bold text-sm sm:text-base rounded-xl shadow-xs transition flex items-center justify-center gap-2"
+                          className="flex-1 min-h-[44px] px-5 py-2.5 bg-[#16877F] hover:bg-teal-800 text-white font-bold text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-2"
                         >
-                          <Check className="w-5 h-5" />
+                          <Check className="w-4 h-4" />
                           <span>
                             {actionLoadingId === task.id ? 'Accepting...' : 'Accept Assignment'}
                           </span>
@@ -644,9 +592,9 @@ export default function VolunteerDashboardPage() {
                           type="button"
                           onClick={() => handleStartTask(task.id)}
                           disabled={actionLoadingId === task.id}
-                          className="flex-1 min-h-[48px] px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm sm:text-base rounded-xl shadow-xs transition flex items-center justify-center gap-2"
+                          className="flex-1 min-h-[44px] px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-2"
                         >
-                          <Navigation className="w-5 h-5" />
+                          <Navigation className="w-4 h-4" />
                           <span>
                             {actionLoadingId === task.id ? 'Updating...' : 'Start Delivery (En Route)'}
                           </span>
@@ -657,21 +605,21 @@ export default function VolunteerDashboardPage() {
                         <button
                           type="button"
                           onClick={() => openResolveModal(task)}
-                          className="flex-1 min-h-[48px] px-6 py-3 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-sm sm:text-base rounded-xl shadow-xs transition flex items-center justify-center gap-2"
+                          className="flex-1 min-h-[44px] px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-2"
                         >
-                          <CheckCircle2 className="w-5 h-5" />
-                          <span>Confirm Delivery &amp; Close Task</span>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Confirm Delivery &amp; Close</span>
                         </button>
                       )}
 
-                      {/* Emergency Assistance Hotline Link */}
+                      {/* Emergency Helpline Link */}
                       <a
                         href="tel:112"
-                        className="min-h-[48px] px-4 py-3 bg-white hover:bg-red-50 text-red-700 font-bold text-xs rounded-xl border border-red-200 transition flex items-center gap-1.5"
+                        className="min-h-[44px] px-3.5 py-2.5 bg-white hover:bg-red-50 text-red-700 font-bold text-xs rounded-xl border border-red-200 transition flex items-center gap-1.5"
                         title="Emergency SOS Contact"
                       >
                         <AlertOctagon className="w-4 h-4 text-red-600" />
-                        <span>Field SOS (112)</span>
+                        <span>SOS (112)</span>
                       </a>
                     </div>
                   </div>
@@ -693,9 +641,9 @@ export default function VolunteerDashboardPage() {
           className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
         >
           <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-[#E1E8F0] overflow-hidden animate-scale-up">
-            <div className="p-5 bg-emerald-800 text-white flex items-center justify-between">
+            <div className="p-4 sm:p-5 bg-emerald-800 text-white flex items-center justify-between">
               <div>
-                <h3 id="resolve-modal-title" className="text-lg font-bold">
+                <h3 id="resolve-modal-title" className="text-base sm:text-lg font-bold">
                   Confirm Aid Delivery
                 </h3>
                 <p className="text-xs text-emerald-100">
@@ -712,7 +660,7 @@ export default function VolunteerDashboardPage() {
               </button>
             </div>
 
-            <form onSubmit={handleConfirmResolve} className="p-6 space-y-4">
+            <form onSubmit={handleConfirmResolve} className="p-5 space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
                   Delivery Confirmation Notes
@@ -723,15 +671,12 @@ export default function VolunteerDashboardPage() {
                   value={resolutionNotes}
                   onChange={(e) => setResolutionNotes(e.target.value)}
                   placeholder="e.g. Handed over to camp warden Sreedharan; verified recipient manifest."
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-700 text-sm text-[#17324F]"
+                  className="w-full px-4 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-700 text-sm text-[#17324F]"
                 />
               </div>
 
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1">
-                <strong>Backend Verification:</strong>
-                <p>
-                  Marking this assignment as resolved notifies the sponsoring NGO and closes the open emergency need record.
-                </p>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600">
+                Marking this assignment as resolved notifies the depot and marks the need as fulfilled.
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-3">
@@ -745,7 +690,7 @@ export default function VolunteerDashboardPage() {
                 <button
                   type="submit"
                   disabled={isResolving}
-                  className="px-5 py-2.5 text-sm font-bold bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl shadow-xs transition flex items-center gap-2"
+                  className="px-5 py-2 text-sm font-bold bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl shadow-xs transition flex items-center gap-2"
                 >
                   {isResolving ? (
                     <>
@@ -763,19 +708,12 @@ export default function VolunteerDashboardPage() {
       )}
 
       {/* ==================================================================== */}
-      {/* 6. MOBILE-OPTIMIZED FOOTER                                           */}
+      {/* 6. COMPACT UNIFIED FOOTER                                            */}
       {/* ==================================================================== */}
-      <footer className="bg-white border-t border-[#E1E8F0] py-5 text-xs text-slate-500 mt-auto">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <SetuLogo variant="light" iconSize={24} showTagline={false} />
-            <span>SETU Volunteer Field Workspace • Built with Bharat 4.0</span>
-          </div>
-          <div className="flex items-center gap-4 font-semibold text-[#16877F]">
-            <Link to="/ngo-dashboard" className="hover:underline">NGO Depot</Link>
-            <Link to="/dashboard" className="hover:underline">Coordinator Panel</Link>
-            <Link to="/" className="hover:underline">Home</Link>
-          </div>
+      <footer className="bg-white border-t border-[#E1E8F0] py-4 text-xs text-slate-500 mt-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>SETU Disaster Response • Volunteer Field Workspace</span>
+          <span className="font-semibold text-slate-400">Built with Bharat 4.0</span>
         </div>
       </footer>
     </div>
