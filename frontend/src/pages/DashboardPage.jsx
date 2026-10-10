@@ -262,6 +262,8 @@ export default function DashboardPage() {
         return 'Assignment in progress';
       case 'under_review':
         return 'Needs verification';
+      case 'secondary_review':
+        return 'Secondary AI review (held for coordinator)';
       case 'resolved':
         return 'Resolved';
       default:
@@ -283,7 +285,7 @@ export default function DashboardPage() {
   const attentionNeeds = needs.filter(
     (n) =>
       n.status !== 'resolved' &&
-      (n.severity === 'critical' || n.severity === 'high' || n.status === 'under_review' || n.status === 'open')
+      (n.severity === 'critical' || n.severity === 'high' || n.status === 'under_review' || n.status === 'secondary_review' || n.status === 'open')
   );
 
   // Summary counts
@@ -294,7 +296,7 @@ export default function DashboardPage() {
   ).length;
   const countResolved = needs.filter((n) => n.status === 'resolved').length;
   const countOpen = needs.filter((n) => n.status === 'open').length;
-  const countReview = needs.filter((n) => n.status === 'under_review').length;
+  const countReview = needs.filter((n) => n.status === 'under_review' || n.status === 'secondary_review').length;
 
   // Active responder tasks (Panel B)
   const activeResponderList = assignments.filter((a) => a.status !== 'resolved');
@@ -308,13 +310,14 @@ export default function DashboardPage() {
         (item.severity === 'critical' ||
           item.severity === 'high' ||
           item.status === 'under_review' ||
+          item.status === 'secondary_review' ||
           item.status === 'open');
     } else if (statusFilter === 'OPEN') {
       matchesFilter = item.status === 'open';
     } else if (statusFilter === 'ASSIGNED') {
       matchesFilter = item.status === 'assigned' || item.status === 'accepted';
     } else if (statusFilter === 'REVIEW') {
-      matchesFilter = item.status === 'under_review';
+      matchesFilter = item.status === 'under_review' || item.status === 'secondary_review';
     } else if (statusFilter === 'RESOLVED') {
       matchesFilter = item.status === 'resolved';
     }

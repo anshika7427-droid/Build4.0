@@ -17,7 +17,8 @@ import {
   Info,
   Send,
   Award,
-  Sparkles
+  Sparkles,
+  Loader2
 } from 'lucide-react';
 
 import ApiService from '../services/api';
@@ -42,6 +43,71 @@ export default function LandingPage() {
   const [statsMode, setStatsMode] = useState('loading'); // 'live' | 'mock' | 'unavailable' | 'loading'
   const [heroImgError, setHeroImgError] = useState(false);
   const [impactImgError, setImpactImgError] = useState(false);
+
+  // In-App Emergency Intake State
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  const [reportResult, setReportResult] = useState(null);
+  const [reportError, setReportError] = useState(null);
+  const [reportForm, setReportForm] = useState({
+    reporter_name: '',
+    reporter_phone: '',
+    location_text: 'Wayanad Relief Camp',
+    description: '',
+    disaster_type: 'Flood',
+    resource_type: 'food',
+    required_quantity: '200',
+    urgency: 'high',
+  });
+
+  const handleQuickReportSubmit = async (e) => {
+    e.preventDefault();
+    if (!reportForm.description.trim()) {
+      setReportError('Please describe the emergency situation and what supplies or help are needed.');
+      return;
+    }
+    setReportError(null);
+    setIsSubmittingReport(true);
+    try {
+      const payload = {
+        reporter_name: reportForm.reporter_name.trim() || 'Citizen Reporter',
+        reporter_phone: reportForm.reporter_phone.trim() || '9876543210',
+        location_text: reportForm.location_text.trim() || 'Wayanad',
+        description: reportForm.description.trim(),
+        disaster_type: reportForm.disaster_type,
+        resource_type: reportForm.resource_type,
+        required_quantity: parseInt(reportForm.required_quantity, 10) || 50,
+        unit: reportForm.resource_type === 'food' ? 'meals' : (reportForm.resource_type === 'water' ? 'liters' : 'kits'),
+        urgency: reportForm.urgency,
+      };
+
+      const res = await ApiService.submitEmergencyReport(payload);
+      if (res.ok && res.data) {
+        setReportResult(res.data);
+      } else {
+        setReportError(res.error || 'Failed to submit emergency report to SETU dispatch.');
+      }
+    } catch (err) {
+      setReportError(`Network error: ${err.message || 'Could not connect to SETU intake server.'}`);
+    } finally {
+      setIsSubmittingReport(false);
+    }
+  };
+
+  const resetReportModal = () => {
+    setReportResult(null);
+    setReportError(null);
+    setReportForm({
+      reporter_name: '',
+      reporter_phone: '',
+      location_text: 'Wayanad Relief Camp',
+      description: '',
+      disaster_type: 'Flood',
+      resource_type: 'food',
+      required_quantity: '200',
+      urgency: 'high',
+    });
+  };
 
   useEffect(() => {
     async function loadStats() {
@@ -119,15 +185,14 @@ export default function LandingPage() {
 
           {/* Right Action CTAs: Report a Need, NGO Dashboard & Volunteer Dashboard */}
           <div className="hidden sm:flex items-center gap-2.5 shrink-0">
-            <a
-              href={GOOGLE_FORMS.need}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="h-10 px-3.5 bg-red-700 hover:bg-red-800 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs transition flex items-center gap-1.5 focus:ring-4 focus:ring-red-200 whitespace-nowrap"
+            <button
+              type="button"
+              onClick={() => { resetReportModal(); setIsReportModalOpen(true); }}
+              className="h-10 px-3.5 bg-red-700 hover:bg-red-800 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs transition flex items-center gap-1.5 focus:ring-4 focus:ring-red-200 whitespace-nowrap cursor-pointer"
             >
+              <Send className="w-3.5 h-3.5" />
               <span>Report Need</span>
-              <ExternalLink className="w-3.5 h-3.5 opacity-85" />
-            </a>
+            </button>
 
             <Link
               to="/ngo-dashboard"
@@ -201,16 +266,14 @@ export default function LandingPage() {
             </nav>
 
             <div className="pt-3 border-t border-[#E1E8F0] flex flex-col gap-2.5">
-              <a
-                href={GOOGLE_FORMS.need}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setMobileMenuOpen(false)}
-                className="w-full min-h-[44px] px-4 py-2.5 bg-red-700 hover:bg-red-800 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition"
+              <button
+                type="button"
+                onClick={() => { setMobileMenuOpen(false); resetReportModal(); setIsReportModalOpen(true); }}
+                className="w-full min-h-[44px] px-4 py-2.5 bg-red-700 hover:bg-red-800 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
               >
-                <span>Report an Emergency</span>
-                <ExternalLink className="w-4 h-4" />
-              </a>
+                <Send className="w-4 h-4" />
+                <span>Report an Emergency (In-App)</span>
+              </button>
 
               <Link
                 to="/ngo-dashboard"
@@ -267,15 +330,25 @@ export default function LandingPage() {
               {/* Three Primary Participation CTAs (>= 48px height) */}
               <div className="pt-1 flex flex-col sm:flex-row flex-wrap gap-3.5">
                 
-                {/* 1. Report a Need */}
+                {/* 1. Report an Emergency (In-App Direct Dispatch) */}
+                <button
+                  type="button"
+                  onClick={() => { resetReportModal(); setIsReportModalOpen(true); }}
+                  className="min-h-[48px] px-6 py-3.5 bg-red-700 hover:bg-red-800 text-white font-bold text-base rounded-xl shadow-xs hover:shadow-md transition flex items-center justify-center gap-2.5 focus:ring-4 focus:ring-red-200 cursor-pointer"
+                >
+                  <Send className="w-5 h-5" />
+                  <span>Report an Emergency (In-App)</span>
+                </button>
+
+                {/* 1b. Google Form Intake Link */}
                 <a
                   href={GOOGLE_FORMS.need}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="min-h-[48px] px-6 py-3.5 bg-red-700 hover:bg-red-800 text-white font-bold text-base rounded-xl shadow-xs hover:shadow-md transition flex items-center justify-center gap-2.5 focus:ring-4 focus:ring-red-200"
+                  className="min-h-[48px] px-4 py-3.5 bg-red-50 hover:bg-red-100 text-red-800 font-semibold text-sm rounded-xl border border-red-200 transition flex items-center justify-center gap-2"
+                  title="Submit via official Google Form"
                 >
-                  <Send className="w-5 h-5" />
-                  <span>Report a Need</span>
+                  <span>Google Form</span>
                   <ExternalLink className="w-4 h-4 opacity-75" />
                 </a>
 
@@ -685,19 +758,24 @@ export default function LandingPage() {
                 </p>
               </div>
 
-              <div>
+              <div className="space-y-2.5">
+                <button
+                  type="button"
+                  onClick={() => { resetReportModal(); setIsReportModalOpen(true); }}
+                  className="w-full min-h-[48px] px-6 py-3 bg-red-700 hover:bg-red-800 text-white font-bold text-base rounded-xl transition shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>Submit Distress Call (In-App)</span>
+                </button>
                 <a
                   href={GOOGLE_FORMS.need}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full min-h-[48px] px-6 py-3 bg-red-700 hover:bg-red-800 text-white font-bold text-base rounded-xl transition shadow-xs flex items-center justify-center gap-2"
+                  className="w-full min-h-[38px] px-4 py-2 bg-slate-100 hover:bg-slate-200 text-[#17324F] font-semibold text-xs rounded-xl transition flex items-center justify-center gap-1.5"
                 >
-                  <span>Report an Emergency</span>
-                  <ExternalLink className="w-4 h-4" />
+                  <span>Or use Verified Google Form</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
                 </a>
-                <span className="text-xs text-slate-500 block text-center mt-2 font-medium">
-                  Opens Verified Need Intake Google Form
-                </span>
               </div>
             </div>
 
@@ -996,6 +1074,315 @@ export default function LandingPage() {
 
         </div>
       </footer>
+
+      {/* ==================================================================== */}
+      {/* IN-APP EMERGENCY INTAKE MODAL                                         */}
+      {/* ==================================================================== */}
+      {isReportModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-title"
+          className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 animate-fade-in"
+        >
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden transform transition-all">
+            
+            {/* Modal Header */}
+            <div className="bg-[#17324F] px-6 py-5 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-600/90 text-white flex items-center justify-center shadow-inner">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 id="modal-title" className="text-xl font-bold leading-tight">
+                    Emergency Relief Request
+                  </h3>
+                  <p className="text-xs text-slate-300">
+                    Direct intake into SETU AI triage & dispatch coordinator
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setIsReportModalOpen(false); resetReportModal(); }}
+                className="p-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                aria-label="Close modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+              
+              {/* SUCCESS STATE */}
+              {reportResult ? (
+                <div className="space-y-6">
+                  <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 space-y-3">
+                    <div className="flex items-center gap-2.5 text-emerald-800 font-bold text-lg">
+                      <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+                      <span>Distress Report Recorded Successfully</span>
+                    </div>
+                    <p className="text-sm text-emerald-900 leading-relaxed">
+                      Your report has been analyzed by SETU AI triage and saved to the live coordination database.
+                    </p>
+                  </div>
+
+                  {/* Extraction & Triage Summary */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs sm:text-sm">
+                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                      <span className="text-slate-500 font-semibold block">Need Reference ID</span>
+                      <span className="font-mono font-bold text-[#17324F] break-all">
+                        {reportResult.id || reportResult.need_id || 'SETU-EMERGENCY'}
+                      </span>
+                    </div>
+
+                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                      <span className="text-slate-500 font-semibold block">Trust Score & Flag</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-base text-[#17324F]">
+                          {reportResult.trust_score !== undefined ? `${reportResult.trust_score}/100` : 'Assessed'}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase ${
+                          (reportResult.trust_score || 0) >= 80 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          {reportResult.flag || ((reportResult.trust_score || 0) >= 80 ? 'Verified' : 'Under Review')}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                      <span className="text-slate-500 font-semibold block">AI Extracted Resource</span>
+                      <span className="font-bold text-[#17324F] capitalize">
+                        {reportResult.required_quantity || reportResult.quantity || '50'} {reportResult.unit || 'units'} of {reportResult.resource_type || reportResult.need_type || 'Supplies'}
+                      </span>
+                    </div>
+
+                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                      <span className="text-slate-500 font-semibold block">Triage Status</span>
+                      <span className="font-bold text-teal-800 uppercase">
+                        {reportResult.dispatch_action === 'secondary_review' || reportResult.status === 'secondary_review'
+                          ? 'Secondary AI Review (Held for Coordinator)'
+                          : (reportResult.dispatch_action || reportResult.status || 'Open Feed')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Verification Reasons */}
+                  {reportResult.reasons && reportResult.reasons.length > 0 && (
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+                      <span className="font-bold text-slate-700 block">Assessment Notes & Rationales:</span>
+                      <ul className="list-disc list-inside space-y-1 text-slate-600">
+                        {reportResult.reasons.map((r, idx) => (
+                          <li key={idx}>{r}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="pt-2 flex flex-col sm:flex-row gap-3">
+                    <Link
+                      to="/dashboard"
+                      className="flex-1 min-h-[44px] px-5 py-2.5 bg-teal-700 hover:bg-teal-800 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-xs transition"
+                    >
+                      <span>View in Coordinator Feed</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={resetReportModal}
+                      className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-[#17324F] font-bold text-sm rounded-xl transition cursor-pointer"
+                    >
+                      Submit Another Report
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* FORM INPUT STATE */
+                <form onSubmit={handleQuickReportSubmit} className="space-y-4">
+                  {reportError && (
+                    <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs sm:text-sm flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{reportError}</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Reporter Name
+                      </label>
+                      <input
+                        type="text"
+                        value={reportForm.reporter_name}
+                        onChange={(e) => setReportForm({ ...reportForm, reporter_name: e.target.value })}
+                        placeholder="e.g. Ramesh Kumar"
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Phone Number
+                      </label>
+                      <input
+                        type="tel"
+                        value={reportForm.reporter_phone}
+                        onChange={(e) => setReportForm({ ...reportForm, reporter_phone: e.target.value })}
+                        placeholder="e.g. +91 98765 43210"
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Incident Location
+                    </label>
+                    <input
+                      type="text"
+                      value={reportForm.location_text}
+                      onChange={(e) => setReportForm({ ...reportForm, location_text: e.target.value })}
+                      placeholder="e.g. Wayanad Relief Camp, Sector 4"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                    />
+                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                      <span className="text-[11px] text-slate-500 font-medium">Quick presets:</span>
+                      {['Wayanad Relief Camp', 'Kalpetta Emergency Depot', 'Meppadi Community Hall'].map((loc) => (
+                        <button
+                          key={loc}
+                          type="button"
+                          onClick={() => setReportForm({ ...reportForm, location_text: loc })}
+                          className="px-2 py-0.5 rounded-md text-[11px] bg-slate-200/70 hover:bg-slate-300 text-slate-700 transition cursor-pointer"
+                        >
+                          {loc.split(' ')[0]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Disaster Type
+                      </label>
+                      <select
+                        value={reportForm.disaster_type}
+                        onChange={(e) => setReportForm({ ...reportForm, disaster_type: e.target.value })}
+                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      >
+                        <option value="Flood">Flood</option>
+                        <option value="Landslide">Landslide</option>
+                        <option value="Earthquake">Earthquake</option>
+                        <option value="Cyclone">Cyclone</option>
+                        <option value="Medical Emergency">Medical Emergency</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Resource Needed
+                      </label>
+                      <select
+                        value={reportForm.resource_type}
+                        onChange={(e) => setReportForm({ ...reportForm, resource_type: e.target.value })}
+                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      >
+                        <option value="food">Cooked Meals / Food</option>
+                        <option value="water">Drinking Water</option>
+                        <option value="medical">Medical / First Aid</option>
+                        <option value="rescue">Rescue Boats</option>
+                        <option value="shelter">Tarpaulins / Blankets</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Quantity Needed
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={reportForm.required_quantity}
+                        onChange={(e) => setReportForm({ ...reportForm, required_quantity: e.target.value })}
+                        placeholder="200"
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Urgency Level
+                    </label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[
+                        { id: 'critical', label: 'Critical', bg: 'hover:bg-red-50 text-red-700 border-red-300', active: 'bg-red-700 text-white border-red-700' },
+                        { id: 'high', label: 'High', bg: 'hover:bg-amber-50 text-amber-700 border-amber-300', active: 'bg-amber-600 text-white border-amber-600' },
+                        { id: 'medium', label: 'Medium', bg: 'hover:bg-teal-50 text-teal-700 border-teal-300', active: 'bg-teal-600 text-white border-teal-600' },
+                        { id: 'low', label: 'Low', bg: 'hover:bg-slate-100 text-slate-700 border-slate-300', active: 'bg-slate-700 text-white border-slate-700' },
+                      ].map((lvl) => (
+                        <button
+                          key={lvl.id}
+                          type="button"
+                          onClick={() => setReportForm({ ...reportForm, urgency: lvl.id })}
+                          className={`py-2 px-1 text-center rounded-xl text-xs font-bold border transition cursor-pointer ${
+                            reportForm.urgency === lvl.id ? lvl.active : lvl.bg
+                          }`}
+                        >
+                          {lvl.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Distress Description <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      rows={3}
+                      required
+                      value={reportForm.description}
+                      onChange={(e) => setReportForm({ ...reportForm, description: e.target.value })}
+                      placeholder="e.g. 200 people stranded at Wayanad relief camp urgently need cooked meals and drinking water due to roadblock."
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-none resize-none"
+                    />
+                  </div>
+
+                  <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setIsReportModalOpen(false)}
+                      className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-semibold text-sm transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmittingReport}
+                      className="px-6 py-2.5 rounded-xl bg-red-700 hover:bg-red-800 disabled:bg-red-400 text-white font-bold text-sm shadow-xs transition flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      {isSubmittingReport ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Routing to AI Engine...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4" />
+                          <span>Submit Emergency Report</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

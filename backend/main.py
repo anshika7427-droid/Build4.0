@@ -243,6 +243,84 @@ app.include_router(assignment_router)
 app.include_router(ngo_router)
 app.include_router(stats_router)
 
+# 🌐 Plural REST Aliases (Supports frontend client conventions)
+@app.get("/needs")
+def list_needs_alias():
+    from backend.routes.need import list_needs
+    return list_needs()
+
+@app.get("/needs/{need_id}")
+def get_single_need_alias(need_id: str):
+    from backend.routes.need import get_single_need
+    return get_single_need(need_id)
+
+@app.post("/needs")
+def report_need_alias(data: NeedInput, background_tasks: BackgroundTasks):
+    from backend.routes.need import process_and_save_need
+    return process_and_save_need(data, background_tasks)
+
+@app.get("/ngos")
+def list_ngos_alias():
+    from backend.routes.ngo import list_ngos
+    res = list_ngos()
+    return res.get("data", []) if isinstance(res, dict) and "data" in res else res
+
+@app.get("/ngos/{ngo_id}")
+def get_ngo_alias(ngo_id: str):
+    from backend.routes.ngo import get_ngo_details
+    return get_ngo_details(ngo_id)
+
+@app.get("/ngos/{ngo_id}/inventory")
+def get_ngo_inventory_alias(ngo_id: str):
+    from backend.routes.ngo import get_ngo_inventory_endpoint
+    return get_ngo_inventory_endpoint(ngo_id)
+
+@app.post("/ngos/{ngo_id}/inventory")
+@app.patch("/ngos/{ngo_id}/inventory")
+def set_ngo_inventory_alias(ngo_id: str, payload: dict):
+    from backend.routes.ngo import set_ngo_inventory_endpoint
+    from backend.models import NGOInventoryInput
+    res_type = payload.get("resource_type") or payload.get("need_type") or "food"
+    qty = payload.get("total_quantity") if "total_quantity" in payload else payload.get("quantity", 0)
+    unit = payload.get("unit") or "units"
+    return set_ngo_inventory_endpoint(ngo_id, NGOInventoryInput(resource_type=res_type, total_quantity=int(qty), unit=unit))
+
+@app.get("/ngos/{ngo_id}/dispatches")
+def get_ngo_dispatches_alias(ngo_id: str):
+    from backend.routes.ngo import get_ngo_dispatches
+    return get_ngo_dispatches(ngo_id)
+
+@app.get("/ngos/{ngo_id}/needs")
+def get_ngo_needs_alias(ngo_id: str):
+    from backend.routes.ngo import get_ngo_needs
+    return get_ngo_needs(ngo_id)
+
+@app.get("/assignments")
+@app.get("/assignments/active")
+def get_assignments_alias():
+    from backend.routes.assignment import get_active_assignments
+    return get_active_assignments()
+
+@app.post("/assignments/{assignment_id}/accept")
+def accept_assignment_alias(assignment_id: str, payload: Optional[dict] = None):
+    from backend.routes.assignment import accept_assignment_endpoint
+    return accept_assignment_endpoint(assignment_id, payload)
+
+@app.patch("/assignments/{assignment_id}/progress")
+def update_assignment_progress_alias(assignment_id: str, payload: Optional[dict] = None):
+    from backend.routes.assignment import update_assignment_progress_endpoint
+    return update_assignment_progress_endpoint(assignment_id, payload)
+
+@app.patch("/assignments/{assignment_id}/dispatch")
+def confirm_dispatch_alias(assignment_id: str, payload: Optional[dict] = None):
+    from backend.routes.assignment import confirm_dispatch_endpoint
+    return confirm_dispatch_endpoint(assignment_id, payload)
+
+@app.patch("/assignments/{assignment_id}/resolve")
+def resolve_assignment_alias(assignment_id: str):
+    from backend.routes.assignment import resolve
+    return resolve(assignment_id)
+
 from fastapi.staticfiles import StaticFiles
 if os.path.isdir("frontendnew"):
     app.mount("/", StaticFiles(directory="frontendnew", html=True), name="static")

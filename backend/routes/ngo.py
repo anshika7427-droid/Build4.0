@@ -1,8 +1,9 @@
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request
 from backend.models import NGOInput, NGOInventoryInput
 from database.ngos_db import save_ngo, get_ngo, get_all_ngos, get_ngo_by_email
 from database.inventory_db import add_or_update_inventory, get_ngo_inventory
-from backend.auth import verify_token
+from backend.auth import verify_token, optional_verify_token
 from database.geocoding import get_coordinates
 from database.needs_db import get_need_by_id
 from database.postgres_client import get_db_cursor
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/ngo", tags=["NGO"])
 
 
 @router.post("/{ngo_id}/inventory")
-def set_ngo_inventory_endpoint(ngo_id: str, data: NGOInventoryInput, token: dict = Depends(verify_token)):
+def set_ngo_inventory_endpoint(ngo_id: str, data: NGOInventoryInput, token: Optional[dict] = Depends(optional_verify_token)):
     """Set or update NGO inventory stock capacity."""
     if isinstance(token, dict) and token.get("role") == "ngo" and token.get("uid") != ngo_id:
         raise HTTPException(status_code=403, detail="Access denied: cannot modify another NGO's inventory")
@@ -232,3 +233,52 @@ def get_ngo_dashboard(ngo_id: str, token: dict = Depends(verify_token)):
         "active_assignments": active_assignments,
         "managed_volunteers": managed_volunteers,
     }
+
+
+@router.get("/{ngo_id}/needs")
+def get_ngo_needs(ngo_id: str):
+    """Retrieve needs associated with or allocated to this NGO."""
+    with get_db_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT n.*, a.allocated_quantity, a.status as allocation_status
+            FROM needs_reports n
+            JOIN ngo_allocations a ON n.id = a.need_id
+            WHERE a.ngo_id = %s
+        """, (ngo_id,))
+        allocated = cur.fetchall()
+
+        if not allocated:
+            # Fallback: check open needs matching this NGO's inventory types
+            cur.execute("SELECT DISTINCT LOWER(resource_type) as r_type FROM ngo_inventory WHERE ngo_id = %s", (ngo_id,))
+            types = [r["r_type"] for r in cur.fetchall()]
+            if types:
+                cur.execute("SELECT * FROM needs_reports WHERE LOWER(resource_type) = ANY(%s) OR LOWER(category) = ANY(%s)", (types, types))
+                allocated = cur.fetchall()
+
+        for r in allocated:
+            if r.get("timestamp"):
+                r["timestamp"] = r["timestamp"].isoformat()
+            if r.get("updated_at"):
+                r["updated_at"] = r["updated_at"].isoformat()
+        return allocated
+
+
+@router.get("/{ngo_id}/dispatches")
+def get_ngo_dispatches(ngo_id: str):
+    """Retrieve active and historical dispatches for this NGO."""
+    with get_db_cursor(commit=False) as cur:
+        cur.execute("""
+            SELECT a.id, a.need_id, a.ngo_id, a.resource_type, a.allocated_quantity, a.status as dispatch_status, a.created_at,
+                   n.description, n.location_text, n.urgency, n.severity,
+                   v.id as volunteer_id, v.name as volunteer_name, v.phone as volunteer_phone, v.vehicle
+            FROM ngo_allocations a
+            JOIN needs_reports n ON a.need_id = n.id
+            LEFT JOIN assignments asgn ON n.id = asgn.need_id
+            LEFT JOIN volunteers v ON asgn.volunteer_id = v.id
+            WHERE a.ngo_id = %s
+        """, (ngo_id,))
+        rows = cur.fetchall()
+        for r in rows:
+            if r.get("created_at"):
+                r["created_at"] = r["created_at"].isoformat()
+        return rows

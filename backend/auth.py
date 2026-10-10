@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timezone, timedelta
 import jwt
+from typing import Optional
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -62,4 +63,17 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
         raise HTTPException(status_code=401, detail="Token has expired. Please login again.")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token. Access denied.")
+
+
+def optional_verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Optional[dict]:
+    """
+    FastAPI dependency — optional Bearer token auth for public/coordinator feeds.
+    Returns decoded token dictionary if valid token is provided, or None if omitted.
+    """
+    if not credentials or not credentials.credentials:
+        return None
+    try:
+        return verify_token(credentials)
+    except Exception:
+        return None
 

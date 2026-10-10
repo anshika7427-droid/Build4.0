@@ -1,9 +1,10 @@
+from typing import Optional
 import traceback
 from fastapi import APIRouter, Depends, HTTPException
-from backend.auth import verify_token                    # ✅ Centralised auth
+from backend.auth import verify_token, optional_verify_token                    # ✅ Centralised auth
 from database.volunteers_db import (
     save_volunteer, get_available_volunteers, get_all_volunteers, hash_password,
-    update_volunteer_status,
+    update_volunteer_status, get_volunteer
 )
 from database.ngos_db import get_ngo
 from backend.models import VolunteerInput, VolunteerStatusInput
@@ -92,15 +93,33 @@ def update_own_status(data: VolunteerStatusInput, token: dict = Depends(verify_t
     return {"id": volunteer_id, "available": data.available}
 
 
+@router.patch("/volunteer/{volunteer_id}/availability")
+@router.patch("/volunteers/{volunteer_id}/availability")
+def update_volunteer_availability_endpoint(
+    volunteer_id: str,
+    data: VolunteerStatusInput,
+    token: Optional[dict] = Depends(optional_verify_token)
+):
+    """
+    Update a volunteer's on-duty/off-duty availability.
+    """
+    vol = get_volunteer(volunteer_id)
+    if not vol:
+        raise HTTPException(status_code=404, detail=f"Volunteer '{volunteer_id}' not found.")
+
+    update_volunteer_status(volunteer_id, data.available)
+    return {"id": volunteer_id, "available": data.available, "message": f"Status updated to {'available' if data.available else 'off-duty'}."}
+
+
 @router.get("/volunteers")
-def list_volunteers(token: dict = Depends(verify_token)):
+def list_volunteers(token: Optional[dict] = Depends(optional_verify_token)):
     """Public endpoint — returns all registered volunteers."""
     try:
         volunteers = get_all_volunteers()
         # Strip sensitive fields before sending to frontend
         safe_fields = ["id", "name", "skills", "available", "location",
                        "active_assignments", "ngo_id", "registered_at",
-                       "ngo_verified", "credential_tags"]
+                       "ngo_verified", "credential_tags", "lat", "lng", "vehicle"]
         sanitized = [
             {k: v for k, v in vol.items() if k in safe_fields}
             for vol in volunteers
@@ -109,5 +128,41 @@ def list_volunteers(token: dict = Depends(verify_token)):
     except Exception as e:
         print(f"❌ list_volunteers error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/volunteer/{volunteer_id}")
+@router.get("/volunteers/{volunteer_id}")
+def get_single_volunteer(volunteer_id: str):
+    """Retrieve details of a single volunteer."""
+    vol = get_volunteer(volunteer_id)
+    if not vol:
+        raise HTTPException(status_code=404, detail=f"Volunteer '{volunteer_id}' not found.")
+    safe_fields = ["id", "name", "skills", "available", "location",
+                   "active_assignments", "ngo_id", "registered_at",
+                   "ngo_verified", "credential_tags", "lat", "lng", "phone", "email", "vehicle"]
+    return {k: v for k, v in vol.items() if k in safe_fields}
+
+
+@router.get("/volunteers/{volunteer_id}/assignments")
+def get_vol_assignments_alias(
+    volunteer_id: str,
+    token: Optional[dict] = Depends(optional_verify_token)
+):
+    """Alias for volunteer assignments feed."""
+    from database.needs_db import get_need_by_id
+    from database.assignments_db import get_assignments_by_volunteer_id
+
+    assignments = get_assignments_by_volunteer_id(volunteer_id)
+    result = []
+    for a in assignments:
+        need_data = get_need_by_id(a.get("need_id"))
+        if need_data:
+            merged = {**need_data, **a}
+            merged["assignment_id"] = a["id"]
+            merged["id"] = a["id"]
+            result.append(merged)
+        else:
+            result.append(a)
+    return result
 
 

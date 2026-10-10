@@ -474,7 +474,7 @@ class ApiService {
     if (override !== null) {
       return override === 'true';
     }
-    return import.meta.env?.VITE_USE_MOCK !== 'false';
+    return import.meta.env?.VITE_USE_MOCK === 'true';
   }
 
   static setMockMode(enabled) {
@@ -637,15 +637,17 @@ class ApiService {
 
     let res = await this.request('/needs');
     if (!res.ok && res.status === 404) {
+      res = await this.request('/need');
+    }
+    if (!res.ok && res.status === 404) {
       res = await this.request('/dashboard/reports');
     }
 
-    if (res.ok && Array.isArray(res.data)) {
-      return { ok: true, mode: 'live', data: res.data };
-    }
-
-    if (res.ok && res.data?.reports) {
-      return { ok: true, mode: 'live', data: res.data.reports };
+    if (res.ok) {
+      const rawList = Array.isArray(res.data)
+        ? res.data
+        : (res.data?.reports || res.data?.data || []);
+      return { ok: true, mode: 'live', data: rawList };
     }
 
     return {
@@ -681,15 +683,19 @@ class ApiService {
       };
     }
 
-    return this.request(`/needs/${needId}`);
+    let res = await this.request(`/needs/${needId}`);
+    if (!res.ok && res.status === 404) {
+      res = await this.request(`/need/${needId}`);
+    }
+    return res;
   }
 
   // --------------------------------------------------------------------------
   // 5. Submit Emergency Distress Report
   // --------------------------------------------------------------------------
   static async submitEmergencyReport(payload) {
-    const rawText = payload.description || payload.text || '';
-    const locationText = payload.location_text || payload.location || '';
+    const rawText = payload.description || payload.text || payload.help_needed || '';
+    const locationText = payload.location_text || payload.location || payload.address || '';
 
     if (this.isMockMode()) {
       const db = loadMockDatabase();
@@ -704,8 +710,8 @@ class ApiService {
         quantity: structured.quantity,
         unit: structured.unit,
         location_text: structured.location_text,
-        latitude: payload.latitude || 11.6854,
-        longitude: payload.longitude || 76.1320,
+        latitude: payload.latitude || payload.lat || 11.6854,
+        longitude: payload.longitude || payload.lng || 76.1320,
         severity: structured.severity,
         trust_score: structured.trust_score,
         verification_status: structured.verification_status,
@@ -757,7 +763,9 @@ class ApiService {
         ok: true,
         mode: 'mock',
         data: {
-          need: newNeed,
+          id: newId,
+          need_id: newId,
+          ...newNeed,
           assignment: newAssignment,
           volunteer: matchedVolunteer,
           ngo: matchedNGO,
@@ -766,24 +774,37 @@ class ApiService {
       };
     }
 
-    let res = await this.request('/needs', {
+    const reportPayload = {
+      reporter_name: payload.reporter_name || payload.name || "Anonymous",
+      reporter_phone: payload.reporter_phone || payload.phone || "0000000000",
+      location_text: locationText || "Unknown Location",
+      lat: payload.latitude || payload.lat || 0.0,
+      lng: payload.longitude || payload.lng || 0.0,
+      description: rawText || "",
+      disaster_type: payload.disaster_type || "Flood",
+      help_needed: payload.help_needed || rawText || "Emergency Supplies",
+      resource_type: payload.resource_type || payload.need_type || null,
+      required_quantity: payload.required_quantity || payload.quantity || null,
+      unit: payload.unit || null,
+      urgency: payload.urgency || payload.severity || null,
+    };
+
+    let res = await this.request('/need/report', {
       method: 'POST',
-      body: JSON.stringify({
-        description: rawText,
-        location_text: locationText,
-        ...payload,
-      }),
+      body: JSON.stringify(reportPayload),
     });
+
+    if (!res.ok && (res.status === 404 || res.status === 405)) {
+      res = await this.request('/needs', {
+        method: 'POST',
+        body: JSON.stringify(reportPayload),
+      });
+    }
 
     if (!res.ok && (res.status === 404 || res.status === 405)) {
       res = await this.request('/webhook', {
         method: 'POST',
-        body: JSON.stringify({
-          description: rawText,
-          location: locationText,
-          help_needed: rawText,
-          ...payload,
-        }),
+        body: JSON.stringify(reportPayload),
       });
     }
 
@@ -798,7 +819,14 @@ class ApiService {
       const db = loadMockDatabase();
       return { ok: true, mode: 'mock', data: db.ngos };
     }
-    const res = await this.request('/ngos');
+    let res = await this.request('/ngos');
+    if (!res.ok && res.status === 404) {
+      res = await this.request('/ngo/list');
+    }
+    if (res.ok) {
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+      return { ok: true, mode: 'live', data: list };
+    }
     return res;
   }
 
@@ -809,8 +837,31 @@ class ApiService {
       if (!ngo) return { ok: false, error: `NGO #${ngoId} not found` };
       return { ok: true, mode: 'mock', data: ngo };
     }
-    const res = await this.request(`/ngos/${ngoId}`);
-    return res;
+    let res = await this.request(`/ngos/${ngoId}`);
+    if (!res.ok && res.status === 404) {
+      res = await this.request(`/ngo/${ngoId}`);
+    }
+    if (!res.ok) return res;
+
+    let ngoData = { ...res.data };
+    // Fetch live inventory to populate capacity if empty or not present
+    if (!ngoData.capacity || ngoData.capacity.length === 0) {
+      let invRes = await this.request(`/ngos/${ngoId}/inventory`);
+      if (!invRes.ok && invRes.status === 404) {
+        invRes = await this.request(`/ngo/${ngoId}/inventory`);
+      }
+      const invItems = (invRes.ok && invRes.data?.inventory) ? invRes.data.inventory : [];
+      ngoData.capacity = invItems.map((item) => ({
+        need_type: item.resource_type || "food",
+        item_name: `${(item.resource_type || "relief").toUpperCase()} Supplies`,
+        quantity: item.available_quantity ?? item.total_quantity ?? 0,
+        total_quantity: item.total_quantity ?? 0,
+        reserved: item.reserved_quantity ?? 0,
+        unit: item.unit || "units",
+        threshold: Math.max(10, Math.floor((item.total_quantity || 100) * 0.2)),
+      }));
+    }
+    return { ok: true, mode: 'live', data: ngoData };
   }
 
   static async updateNGOInventory(ngoId, needType, newQuantity, notes = '') {
@@ -850,20 +901,23 @@ class ApiService {
 
     // Call live backend endpoint
     let res = await this.request(`/ngos/${ngoId}/inventory`, {
-      method: 'PATCH',
+      method: 'POST',
       body: JSON.stringify({
-        need_type: needType,
-        quantity: qty,
+        resource_type: needType,
+        total_quantity: qty,
+        unit: 'units',
         notes,
       }),
     });
 
-    if (!res.ok && res.status === 404) {
-      res = await this.request(`/ngos/${ngoId}/capacity`, {
-        method: 'PUT',
+    if (!res.ok && (res.status === 404 || res.status === 405)) {
+      res = await this.request(`/ngo/${ngoId}/inventory`, {
+        method: 'POST',
         body: JSON.stringify({
-          need_type: needType,
-          quantity: qty,
+          resource_type: needType,
+          total_quantity: qty,
+          unit: 'units',
+          notes,
         }),
       });
     }
@@ -889,7 +943,7 @@ class ApiService {
 
     let res = await this.request(`/ngos/${ngoId}/dispatches`);
     if (!res.ok && res.status === 404) {
-      res = await this.request(`/ngos/${ngoId}/assignments`);
+      res = await this.request(`/ngo/${ngoId}/dispatches`);
     }
     return res;
   }
@@ -920,6 +974,9 @@ class ApiService {
     }
 
     let res = await this.request(`/ngos/${ngoId}/needs`);
+    if (!res.ok && res.status === 404) {
+      res = await this.request(`/ngo/${ngoId}/needs`);
+    }
     return res;
   }
 
@@ -941,10 +998,16 @@ class ApiService {
       };
     }
 
-    const res = await this.request(`/assignments/${assignmentId}/dispatch`, {
+    let res = await this.request(`/assignments/${assignmentId}/dispatch`, {
       method: 'PATCH',
       body: JSON.stringify({ dispatch_status: 'dispatched' }),
     });
+    if (!res.ok && res.status === 404) {
+      res = await this.request(`/assignment/${assignmentId}/dispatch`, {
+        method: 'PATCH',
+        body: JSON.stringify({ dispatch_status: 'dispatched' }),
+      });
+    }
     return res;
   }
 
@@ -956,7 +1019,10 @@ class ApiService {
       const db = loadMockDatabase();
       return { ok: true, mode: 'mock', data: db.volunteers };
     }
-    const res = await this.request('/volunteers');
+    let res = await this.request('/volunteers');
+    if (!res.ok && res.status === 404) {
+      res = await this.request('/volunteer');
+    }
     return res;
   }
 
@@ -967,7 +1033,10 @@ class ApiService {
       if (!volunteer) return { ok: false, error: `Volunteer #${volunteerId} not found` };
       return { ok: true, mode: 'mock', data: volunteer };
     }
-    const res = await this.request(`/volunteers/${volunteerId}`);
+    let res = await this.request(`/volunteers/${volunteerId}`);
+    if (!res.ok && res.status === 404) {
+      res = await this.request(`/volunteer/${volunteerId}`);
+    }
     return res;
   }
 
@@ -988,10 +1057,16 @@ class ApiService {
       };
     }
 
-    const res = await this.request(`/volunteers/${volunteerId}/availability`, {
+    let res = await this.request(`/volunteers/${volunteerId}/availability`, {
       method: 'PATCH',
       body: JSON.stringify({ available: Boolean(available) }),
     });
+    if (!res.ok && res.status === 404) {
+      res = await this.request(`/volunteer/${volunteerId}/availability`, {
+        method: 'PATCH',
+        body: JSON.stringify({ available: Boolean(available) }),
+      });
+    }
     return res;
   }
 
@@ -1053,6 +1128,13 @@ class ApiService {
     });
 
     if (!res.ok && res.status === 404) {
+      res = await this.request(`/assignment/${assignmentId}/accept`, {
+        method: 'POST',
+        body: JSON.stringify({ volunteer_id: volunteerId }),
+      });
+    }
+
+    if (!res.ok && res.status === 404) {
       res = await this.request(`/assignment/volunteer/${assignmentId}?volunteer_id=${encodeURIComponent(volunteerId)}`, {
         method: 'POST',
       });
@@ -1091,7 +1173,7 @@ class ApiService {
     });
 
     if (!res.ok && res.status === 404) {
-      res = await this.request(`/assignments/${assignmentId}/status`, {
+      res = await this.request(`/assignment/${assignmentId}/progress`, {
         method: 'PATCH',
         body: JSON.stringify({ status: 'in_progress', notes }),
       });
@@ -1178,9 +1260,15 @@ class ApiService {
       };
     }
 
-    const res = await this.request(`/volunteers/${volunteerId}/assignments`);
+    let res = await this.request('/assignments/active');
     if (!res.ok && res.status === 404) {
-      return this.request(`/assignment/volunteer/${volunteerId}`);
+      res = await this.request('/assignment/active');
+    }
+    if (!res.ok && res.status === 404) {
+      res = await this.request(`/volunteers/${volunteerId}/assignments`);
+    }
+    if (!res.ok && res.status === 404) {
+      res = await this.request(`/assignment/volunteer/${volunteerId}`);
     }
     return res;
   }

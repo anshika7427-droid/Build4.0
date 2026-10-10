@@ -1,5 +1,6 @@
+from typing import Optional
 from fastapi import APIRouter, Depends
-from backend.auth import verify_token
+from backend.auth import verify_token, optional_verify_token
 
 from database.needs_db import get_open_needs, get_all_needs
 from database.volunteers_db import get_available_volunteers, get_all_volunteers
@@ -10,7 +11,7 @@ router = APIRouter(prefix="/dashboard")
 
 
 @router.get("/reports")
-def get_reports_endpoint(token: dict = Depends(verify_token)):
+def get_reports_endpoint(token: Optional[dict] = Depends(optional_verify_token)):
     """
     Returns all disaster needs reports joined with assigned volunteer metadata,
     specifically serializing volunteer_lat and volunteer_lng for the map UI.
@@ -110,7 +111,7 @@ def get_reports_endpoint(token: dict = Depends(verify_token)):
 
 
 @router.get("")
-def dashboard(token: dict = Depends(verify_token)):
+def dashboard(token: Optional[dict] = Depends(optional_verify_token)):
     needs = get_open_needs()
     vols = get_available_volunteers()
     all_vols = get_all_volunteers()

@@ -4,7 +4,7 @@ from backend.models import NeedInput
 from backend.auth import verify_token
 from ai_processing.gemini_processor import process_need_text
 from database.geocoding import get_coordinates
-from database.needs_db import save_need, check_corroboration
+from database.needs_db import save_need, check_corroboration, get_all_needs, get_need_by_id
 from database.verification import (
     build_common_only_trust_result,
     calculate_trust_score,
@@ -255,4 +255,23 @@ def create_need(
     background_tasks: BackgroundTasks,
     token: dict = Depends(verify_token),
 ):
-    return process_and_save_need(data, background_tasks)
+    return process_and_save_need(data, background_tasks)
+
+
+@router.get("")
+def list_needs():
+    """
+    Public feed of all recorded emergency needs reports.
+    """
+    return get_all_needs()
+
+
+@router.get("/{need_id}")
+def get_single_need(need_id: str):
+    """
+    Retrieve single emergency need details by ID.
+    """
+    need = get_need_by_id(need_id)
+    if not need:
+        raise HTTPException(status_code=404, detail=f"Need '{need_id}' not found.")
+    return need

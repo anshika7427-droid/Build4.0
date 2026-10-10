@@ -262,3 +262,17 @@ def get_all_volunteers() -> list:
             if row.get("updated_at"):
                 row["updated_at"] = row["updated_at"].isoformat()
         return rows
+
+
+def get_volunteer(volunteer_id: str) -> dict | None:
+    """Fetch a single volunteer by ID"""
+    with get_db_cursor(commit=False) as cur:
+        cur.execute("SELECT * FROM volunteers WHERE id = %s", (str(volunteer_id),))
+        row = cur.fetchone()
+        if row:
+            if row.get("registered_at"):
+                row["registered_at"] = row["registered_at"].isoformat()
+            if row.get("updated_at"):
+                row["updated_at"] = row["updated_at"].isoformat()
+            return row
+    return None
