@@ -1,5 +1,31 @@
 .env
-venv/
+serviceAccountKey.json
+**/credentials.json
+
 __pycache__/
-*.py[cod]
-.pytest_cache/
+*.pyc
+*.pyo
+venv/
+*.egg-info/
+
+.idea/
+.vscode/
+*.DS_Store
+
+.gcloudignore
+*.log
+dist/
+build/
+
+# Ngrok executable
+ngrok.exe
+ngrok
+
+# Ngrok configuration/logs (if any)
+.ngrok2/
+ngrok.log
+
+config/.env
+config/cloudrun_env.yaml
+
+hello.txt
