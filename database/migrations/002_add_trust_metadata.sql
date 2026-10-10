@@ -8,6 +8,7 @@ ALTER TABLE needs_reports ADD COLUMN IF NOT EXISTS trust_reasons JSONB DEFAULT '
 ALTER TABLE needs_reports ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'MEDIUM';
 ALTER TABLE needs_reports ADD COLUMN IF NOT EXISTS engine_version TEXT DEFAULT '2.0.0';
 ALTER TABLE needs_reports ADD COLUMN IF NOT EXISTS text_hash TEXT;
+ALTER TABLE needs_reports ADD COLUMN IF NOT EXISTS flag TEXT DEFAULT 'unverified';
 
 -- Performance & duplicate-detection indexes
 CREATE INDEX IF NOT EXISTS idx_needs_text_hash ON needs_reports(text_hash);

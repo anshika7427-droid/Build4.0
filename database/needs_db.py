@@ -53,6 +53,7 @@ def save_need(data: dict) -> str:
     with get_db_cursor(commit=True) as cur:
         # Standard insert with backward compatibility for pre-migration schemas
         try:
+            cur.execute("SAVEPOINT save_need_sp")
             cur.execute(
                 """
                 INSERT INTO needs_reports (
@@ -60,8 +61,8 @@ def save_need(data: dict) -> str:
                     severity, category, status, timestamp, updated_at, trust_score,
                     summary_en, summary_local, disaster_type, help_needed,
                     resource_type, required_quantity, fulfilled_quantity, unit, urgency,
-                    trust_tier, dispatch_action, priority, engine_version, text_hash, trust_reasons
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    trust_tier, dispatch_action, priority, engine_version, text_hash, trust_reasons, flag
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     doc_id, data.get("reporter_name"), data.get("reporter_phone"), data.get("location_text"),
@@ -73,10 +74,15 @@ def save_need(data: dict) -> str:
                     ful_qty, data.get("unit", "units"), data.get("urgency", "medium"),
                     data.get("trust_tier", "unscored"), data.get("dispatch_action", "human_review"),
                     data.get("priority", "MEDIUM"), data.get("engine_version", "2.0.0"),
-                    data.get("text_hash"), reasons_json
+                    data.get("text_hash"), reasons_json, data.get("flag", "unverified")
                 )
             )
+            cur.execute("RELEASE SAVEPOINT save_need_sp")
         except Exception:
+            try:
+                cur.execute("ROLLBACK TO SAVEPOINT save_need_sp")
+            except Exception:
+                pass
             # Fallback for baseline schemas without migration 002
             cur.execute(
                 """
@@ -287,7 +293,7 @@ def check_reporter_reputation(
             cur.execute(
                 """
                 SELECT verified FROM ngos
-                WHERE (contact_phone = %s OR contact_phone = %s)
+                WHERE (phone = %s OR phone = %s)
                 """,
                 (norm_phone, str(reporter_phone))
             )

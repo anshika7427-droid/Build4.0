@@ -334,7 +334,7 @@ def process_and_save_need(data: NeedInput, background_tasks: BackgroundTasks):
             "description": data.description,
             "category": category,
             "severity": severity,
-            "resource_type": effective_need_type,
+            "resource_type": resource_type or effective_need_type,
             "required_quantity": required_quantity,
             "fulfilled_quantity": 0,
             "unit": unit,
