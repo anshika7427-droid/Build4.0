@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -8,7 +9,6 @@ import {
   HeartHandshake,
   RefreshCw,
   Send,
-  Radio,
   FileText,
   Building2,
   Phone,
@@ -21,8 +21,8 @@ import {
   Activity,
   X
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import ApiService from '../services/api';
+import SetuNavbar from '../components/SetuNavbar';
 import SetuLogo from '../components/SetuLogo';
 
 export default function DashboardPage() {
@@ -337,86 +337,52 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A] flex flex-col font-sans selection:bg-teal-100 selection:text-teal-900">
       
       {/* -------------------------------------------------------------------- */}
-      {/* 3A. HEADER                                                           */}
+      {/* 3A. SHARED NAVBAR (EXACT LANDING PAGE COMPONENT)                     */}
       {/* -------------------------------------------------------------------- */}
-      <header className="bg-[#0F172A] text-white border-b-4 border-teal-600 shadow-md sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+      <SetuNavbar activePage="coordinator" />
+
+      {/* -------------------------------------------------------------------- */}
+      {/* 3B. COMPACT COORDINATOR TOOLBAR IMMEDIATELY BELOW NAVBAR (44-48px)   */}
+      {/* -------------------------------------------------------------------- */}
+      <div className="bg-[#17324F] text-white border-b border-slate-800 h-11 sm:h-12 px-4 sm:px-6 flex items-center shadow-xs">
+        <div className="max-w-7xl mx-auto w-full flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
           
-          {/* Brand Identity & Explanation */}
-          <div className="flex items-center space-x-2.5 sm:space-x-3.5 flex-wrap">
-            <Link
-              to="/"
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-teal-800 hover:bg-teal-700 text-teal-100 hover:text-white border border-teal-500 transition flex items-center gap-1 shadow-sm"
-              title="Return to public homepage"
-            >
-              <span>← Public Site</span>
-            </Link>
-            <Link
-              to="/ngo-dashboard"
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-teal-300 hover:text-white border border-slate-700 transition hidden sm:inline-flex items-center gap-1.5"
-            >
-              <Building2 className="w-3.5 h-3.5" />
-              <span>NGO Workspace</span>
-            </Link>
-            <Link
-              to="/volunteer-dashboard"
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-teal-300 hover:text-white border border-slate-700 transition hidden sm:inline-flex items-center gap-1.5"
-            >
-              <Users className="w-3.5 h-3.5" />
-              <span>Volunteer Hub</span>
-            </Link>
-            <SetuLogo variant="dark" showTagline={false} iconSize={40} />
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-slate-300 font-medium text-base sm:text-lg">
-                  — Coordinator Dashboard
-                </span>
-              </div>
-              <p className="text-slate-300 text-sm font-normal">
-                Active incident management, verification &amp; responder dispatch operations.
-              </p>
-            </div>
+          {/* Workspace Badge & Title */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <span className="px-2 py-0.5 bg-teal-900/90 text-teal-200 border border-teal-700 text-[11px] font-bold uppercase tracking-wider rounded">
+              Coordinator Workspace
+            </span>
+            <span className="text-xs font-bold text-slate-200 hidden sm:inline">
+              Incident Management &amp; Dispatch Ops
+            </span>
           </div>
 
           {/* Mode Indicator & Connection Controls */}
-          <div className="flex items-center flex-wrap gap-2.5">
+          <div className="flex items-center gap-2 shrink-0">
             {systemMode === 'mock' ? (
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-amber-950/80 text-amber-200 border-2 border-amber-500 shadow-sm">
-                  <Radio className="w-4 h-4 text-amber-400" />
-                  <span>DEMO MODE — Using sample emergency data</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={toggleSystemMode}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-200 hover:text-white hover:bg-slate-700 border border-slate-600 transition min-h-[36px]"
-                  title="Switch to live backend mode"
-                >
-                  Connect to Backend
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={toggleSystemMode}
+                className="h-7 px-2.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 border bg-amber-950/90 text-amber-200 border-amber-600/80 hover:bg-amber-900"
+                title="Switch to live backend mode"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                <span>Demo Sandbox</span>
+              </button>
             ) : (
-              <div className="flex items-center gap-2">
-                {systemHealth?.ok ? (
-                  <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-emerald-950/80 text-emerald-200 border-2 border-emerald-500 shadow-sm">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>CONNECTED — Backend Active</span>
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-red-950/80 text-red-200 border-2 border-red-500 shadow-sm">
-                    <AlertTriangle className="w-4 h-4 text-red-400" />
-                    <span>DISCONNECTED — Backend Unreachable</span>
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={toggleSystemMode}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-200 hover:text-white hover:bg-slate-700 border border-slate-600 transition min-h-[36px]"
-                  title="Switch back to sample demo mode"
-                >
-                  Switch to Demo Mode
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={toggleSystemMode}
+                className={`h-7 px-2.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 border ${
+                  systemHealth?.ok
+                    ? 'bg-emerald-950/90 text-emerald-200 border-emerald-600/80 hover:bg-emerald-900'
+                    : 'bg-red-950/90 text-red-200 border-red-600/80 hover:bg-red-900'
+                }`}
+                title="Switch to sample demo mode"
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${systemHealth?.ok ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+                <span>{systemHealth?.ok ? 'Live Connected' : 'Disconnected'}</span>
+              </button>
             )}
 
             {/* Refresh Action */}
@@ -425,10 +391,11 @@ export default function DashboardPage() {
               onClick={loadData}
               disabled={isLoading}
               title="Refresh emergency data"
-              className="p-2 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition"
+              className="h-7 px-2.5 bg-slate-800 hover:bg-slate-700 text-teal-300 rounded-md border border-slate-600 text-xs font-bold flex items-center gap-1.5 transition"
               aria-label="Refresh emergency data"
             >
-              <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin text-teal-400' : ''}`} />
+              <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>Sync</span>
             </button>
 
             {/* Reset Demo Option */}
@@ -436,16 +403,16 @@ export default function DashboardPage() {
               <button
                 type="button"
                 onClick={handleResetDemoData}
-                className="px-2.5 py-1.5 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 font-mono transition"
+                className="h-7 px-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-md border border-slate-600 text-xs font-mono transition"
                 title="Reset sample records to default starting state"
               >
-                Reset Demo
+                Reset
               </button>
             )}
           </div>
 
         </div>
-      </header>
+      </div>
 
       {/* Toast Feedback */}
       {feedbackToast && (
@@ -1346,23 +1313,16 @@ export default function DashboardPage() {
       {/* -------------------------------------------------------------------- */}
       {/* FOOTER                                                               */}
       {/* -------------------------------------------------------------------- */}
-      <footer className="bg-[#0F172A] text-slate-400 border-t border-slate-800 py-6 text-sm mt-8">
+      <footer className="bg-[#17324F] text-slate-300 border-t border-slate-800 py-6 text-xs mt-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div>
-            <p className="font-bold text-slate-200 text-base">
-              SETU — Disaster Response &amp; Emergency Coordination
-            </p>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Helping teams coordinate emergency needs and relief responses with speed and clarity.
-            </p>
+          <div className="flex items-center gap-3">
+            <SetuLogo variant="dark" iconSize={24} showTagline={false} />
+            <span>SETU Coordinator Operations Console • Built with Bharat 4.0</span>
           </div>
-          <div className="flex items-center gap-3 text-xs">
-            <span className="bg-slate-800 px-3 py-1.5 rounded-lg text-slate-300 border border-slate-700">
-              Branch: feature/abhijeet-frontend
-            </span>
-            <span className="bg-slate-800 px-3 py-1.5 rounded-lg text-slate-300 border border-slate-700">
-              React 18 + Vite
-            </span>
+          <div className="flex items-center gap-4 font-semibold text-teal-300">
+            <Link to="/ngo-dashboard" className="hover:underline hover:text-white">NGO Depot</Link>
+            <Link to="/volunteer-dashboard" className="hover:underline hover:text-white">Volunteer Hub</Link>
+            <Link to="/" className="hover:underline hover:text-white">Public Homepage</Link>
           </div>
         </div>
       </footer>

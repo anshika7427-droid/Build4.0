@@ -394,6 +394,10 @@ function simulateStructuredNeedExtraction(rawText, locationHint = '') {
     need_type = "food";
     item = "cooked meals & dry rations";
     unit = "meals";
+  } else if (lower.includes("transport") || lower.includes("vehicle") || lower.includes("evacuat") || lower.includes("cargo") || lower.includes("ambulance") || lower.includes("drive") || lower.includes("passenger")) {
+    need_type = "transport";
+    item = "emergency transport / evacuation";
+    unit = "trips";
   } else if (lower.includes("water") || lower.includes("drink") || lower.includes("bottle") || lower.includes("purif")) {
     need_type = "water";
     item = "safe drinking water";
@@ -1270,6 +1274,103 @@ class ApiService {
     if (!res.ok && res.status === 404) {
       res = await this.request(`/assignment/volunteer/${volunteerId}`);
     }
+    return res;
+  }
+
+  // --------------------------------------------------------------------------
+  // 12. In-App Registration APIs (Volunteer & NGO)
+  // --------------------------------------------------------------------------
+  static async registerVolunteer(payload) {
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      const newId = `V00${db.volunteers.length + 1}`;
+      const newVolunteer = {
+        id: newId,
+        name: payload.name || "Volunteer Responder",
+        role_title: payload.role_title || "Field Aid Volunteer",
+        skills: payload.skills || ["food_distribution"],
+        latitude: payload.latitude || 11.6850,
+        longitude: payload.longitude || 76.1300,
+        available: true,
+        verified: false,
+        tier: 1,
+        phone: payload.phone || "+91 98765 00000",
+        email: payload.email || `${newId.toLowerCase()}@responder.setu.in`,
+        vehicle: payload.vehicle || "On Foot / Standard",
+        blood_group: payload.blood_group || "O+",
+        location: payload.location || "Wayanad Relief Sector",
+        registered_at: new Date().toISOString(),
+      };
+      db.volunteers.push(newVolunteer);
+      saveMockDatabase(db);
+      return {
+        ok: true,
+        mode: 'mock',
+        data: newVolunteer,
+        message: "Volunteer registered successfully in SETU responder network.",
+      };
+    }
+
+    let res = await this.request('/volunteer/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok && (res.status === 404 || res.status === 405)) {
+      res = await this.request('/volunteer', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    }
+    return res;
+  }
+
+  static async registerNGO(payload) {
+    if (this.isMockMode()) {
+      const db = loadMockDatabase();
+      const newId = `NGO00${db.ngos.length + 1}`;
+      const newNGO = {
+        id: newId,
+        name: payload.ngo_name || payload.name || "Community Relief NGO",
+        verified: false,
+        location_text: payload.location || payload.location_text || "Wayanad Sector",
+        phone: payload.phone || "+91 4936 000000",
+        email: payload.email || `contact@${newId.toLowerCase()}.org`,
+        coordinator_name: payload.owner_name || payload.coordinator_name || "Coordinator",
+        coverage_radius_km: payload.radius || 25,
+        capacity: [
+          {
+            need_type: "food",
+            item_name: "Emergency Rations & Meals",
+            quantity: 250,
+            reserved: 0,
+            unit: "meals",
+            threshold: 50,
+          },
+          {
+            need_type: "transport",
+            item_name: "Field Transport Vehicles",
+            quantity: 5,
+            reserved: 0,
+            unit: "vehicles",
+            threshold: 2,
+          },
+        ],
+        registered_at: new Date().toISOString(),
+      };
+      db.ngos.push(newNGO);
+      saveMockDatabase(db);
+      return {
+        ok: true,
+        mode: 'mock',
+        data: newNGO,
+        message: "NGO organization registered successfully with SETU coordinator registry.",
+      };
+    }
+
+    let res = await this.request('/ngo/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
     return res;
   }
 }

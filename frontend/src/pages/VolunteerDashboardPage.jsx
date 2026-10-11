@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
-  Users,
   CheckCircle2,
   AlertTriangle,
   Clock,
@@ -15,19 +14,29 @@ import {
   Info,
   X,
   ExternalLink,
-  AlertOctagon
+  AlertOctagon,
+  User
 } from 'lucide-react';
 import ApiService from '../services/api';
+import SetuNavbar from '../components/SetuNavbar';
 import SetuLogo from '../components/SetuLogo';
 
 export default function VolunteerDashboardPage() {
   // --------------------------------------------------------------------------
   // State
   // --------------------------------------------------------------------------
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlId = searchParams.get('id');
   const [volunteers, setVolunteers] = useState([]);
-  const [selectedVolunteerId, setSelectedVolunteerId] = useState('V001');
+  const [selectedVolunteerId, setSelectedVolunteerId] = useState(urlId || 'V001');
   const [volunteer, setVolunteer] = useState(null);
   const [tasks, setTasks] = useState([]);
+
+  useEffect(() => {
+    if (urlId && urlId !== selectedVolunteerId) {
+      setSelectedVolunteerId(urlId);
+    }
+  }, [urlId]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [toast, setToast] = useState(null);
@@ -233,101 +242,80 @@ export default function VolunteerDashboardPage() {
       )}
 
       {/* ==================================================================== */}
-      {/* 1. TOP HEADER & BRAND LOCKUP                                         */}
+      {/* 1. TOP HEADER (EXACT SHARED LANDING PAGE NAVBAR)                     */}
       {/* ==================================================================== */}
-      <header className="bg-white border-b border-[#E1E8F0] sticky top-0 z-40 shadow-xs">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 h-18 sm:h-20 flex items-center justify-between gap-3">
-          {/* Brand Logo & Mobile Tag */}
-          <div className="flex items-center gap-3">
-            <Link
-              to="/"
-              className="focus:outline-none focus:ring-2 focus:ring-[#16877F] rounded-lg"
-              aria-label="SETU Home"
-            >
-              <SetuLogo variant="light" iconSize={36} />
-            </Link>
-            <span className="hidden sm:inline-block px-2 py-0.5 bg-teal-50 text-[#16877F] text-xs font-bold uppercase tracking-wider rounded border border-teal-200">
-              Field Responder
-            </span>
-          </div>
+      <SetuNavbar activePage="volunteer" />
 
-          {/* Switch Demo Volunteer & System Mode */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Volunteer Profile Switcher */}
-            <div className="flex items-center gap-1.5 bg-[#F7F9FC] border border-[#E1E8F0] rounded-xl px-2.5 py-1 text-xs">
-              <Users className="w-3.5 h-3.5 text-[#16877F] shrink-0" />
-              <label htmlFor="volunteer-select" className="sr-only">Switch Demo Volunteer</label>
+      {/* ==================================================================== */}
+      {/* 2. COMPACT VOLUNTEER WORKSPACE TOOLBAR IMMEDIATELY BELOW NAVBAR (44-48px) */}
+      {/* ==================================================================== */}
+      <div className="bg-[#17324F] text-white border-b border-slate-800 h-11 sm:h-12 px-4 sm:px-6 flex items-center shadow-xs">
+        <div className="max-w-7xl mx-auto w-full flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+          
+          {/* Workspace Title & Volunteer Selector */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <span className="px-2 py-0.5 bg-teal-900/90 text-teal-200 border border-teal-700 text-[11px] font-bold uppercase tracking-wider rounded">
+              Volunteer Workspace
+            </span>
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="vol-select" className="text-xs text-slate-300 font-medium hidden sm:inline">
+                Responder:
+              </label>
               <select
-                id="volunteer-select"
+                id="vol-select"
                 value={selectedVolunteerId}
-                onChange={(e) => setSelectedVolunteerId(e.target.value)}
-                className="bg-transparent font-bold text-[#17324F] focus:outline-none cursor-pointer max-w-[130px] sm:max-w-none truncate"
+                onChange={(e) => {
+                  setSelectedVolunteerId(e.target.value);
+                  setSearchParams({ id: e.target.value });
+                }}
+                className="bg-slate-800 text-white border border-slate-600 rounded-md px-2 py-0.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-teal-400 h-7"
               >
-                {volunteers.map((vol) => (
-                  <option key={vol.id} value={vol.id}>
-                    {vol.name} ({vol.id})
+                {volunteers.map((v) => (
+                  <option key={v.id} value={v.id} className="bg-slate-900 text-white">
+                    {v.name} ({v.id})
                   </option>
                 ))}
               </select>
             </div>
+          </div>
 
-            {/* Mode Switcher */}
+          {/* Controls: Mode, Refresh */}
+          <div className="flex items-center gap-2 shrink-0">
             <button
+              type="button"
               onClick={toggleSystemMode}
-              className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition ${
+              className={`h-7 px-2.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 border ${
                 systemMode === 'mock'
-                  ? 'bg-amber-50 text-amber-900 border-amber-300'
-                  : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                  ? 'bg-amber-950/90 text-amber-200 border-amber-600/80 hover:bg-amber-900'
+                  : 'bg-emerald-950/90 text-emerald-200 border-emerald-600/80 hover:bg-emerald-900'
               }`}
-              title="Click to toggle between Demo Mode and Live Backend"
+              title="Toggle Live/Demo mode"
             >
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  systemMode === 'mock' ? 'bg-amber-500' : 'bg-emerald-500'
-                }`}
-              />
-              <span className="hidden sm:inline">
-                {systemMode === 'mock' ? 'Demo' : 'Live'}
-              </span>
+              <span className={`w-1.5 h-1.5 rounded-full ${systemMode === 'mock' ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'}`} />
+              <span>{systemMode === 'mock' ? 'Demo Sandbox' : 'Live API'}</span>
             </button>
 
-            {/* NGO View Link */}
-            <Link
-              to="/ngo-dashboard"
-              className="hidden md:inline-flex items-center gap-1 text-xs font-bold text-[#526277] hover:text-[#17324F] hover:bg-slate-100 px-2.5 py-1 rounded-lg transition"
+            <button
+              type="button"
+              onClick={loadVolunteerData}
+              disabled={isLoading}
+              className="h-7 px-2.5 bg-slate-800 hover:bg-slate-700 text-teal-300 rounded-md border border-slate-600 text-xs font-bold flex items-center gap-1.5 transition"
+              title="Refresh Assignments"
             >
-              <Building2 className="w-3.5 h-3.5" />
-              <span>NGO View</span>
-            </Link>
+              <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>Sync</span>
+            </button>
           </div>
-        </div>
-      </header>
 
-      {/* ==================================================================== */}
-      {/* 2. BACKEND MATCHING & HACKATHON DISCLAIMER                           */}
-      {/* ==================================================================== */}
-      <div className="bg-[#17324F] text-slate-200 border-b border-slate-700 py-2 px-4 text-xs">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="px-1.5 py-0.2 rounded bg-teal-800 text-teal-200 font-bold uppercase text-[10px] shrink-0">
-              Backend Assigned
-            </span>
-            <span className="text-slate-300 truncate">
-              Showing assignments routed by the SETU backend matching engine for this responder.
-            </span>
-          </div>
-          <span className="text-amber-300 font-medium shrink-0 hidden sm:inline">
-            Demo Responder Workspace
-          </span>
         </div>
       </div>
 
       {/* ==================================================================== */}
       {/* 3. VOLUNTEER IDENTITY & AVAILABILITY STATUS BAR                      */}
       {/* ==================================================================== */}
-      <section className="bg-white border-b border-[#E1E8F0] py-4 sm:py-5">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <section className="bg-white border-b border-[#D5E0EB] py-3.5 sm:py-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
             {/* Profile Info */}
             <div className="space-y-1">
               <div className="flex items-center gap-2.5 flex-wrap">
@@ -335,14 +323,21 @@ export default function VolunteerDashboardPage() {
                   {volunteer?.name || 'Field Responder'}
                 </h1>
                 {volunteer?.verified && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-teal-50 text-[#16877F] border border-teal-200">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-50 text-[#16877F] border border-teal-200">
                     <ShieldCheck className="w-3.5 h-3.5" />
                     <span>Tier {volunteer.tier} Responder</span>
                   </span>
                 )}
-                <span className="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                <span className="text-xs font-mono bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded border border-[#D5E0EB] font-bold">
                   {selectedVolunteerId}
                 </span>
+                <Link
+                  to={`/volunteer-profile?id=${selectedVolunteerId}`}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 transition"
+                >
+                  <User className="w-3 h-3" />
+                  <span>View Full Profile &rarr;</span>
+                </Link>
               </div>
               <p className="text-xs sm:text-sm text-[#526277] font-medium">
                 {volunteer?.role_title || 'Emergency Logistics Responder'} • Skills: {volunteer?.skills?.join(', ').replace(/_/g, ' ') || 'field aid'}
@@ -385,18 +380,18 @@ export default function VolunteerDashboardPage() {
           </div>
 
           {/* Quick Metrics Bar */}
-          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
-            <div className="bg-[#F7F9FC] p-2.5 rounded-xl text-center border border-slate-200/70">
+          <div className="grid grid-cols-3 gap-2.5 sm:gap-3 pt-2.5 border-t border-slate-100">
+            <div className="bg-[#F7F9FC] p-2 sm:p-2.5 rounded-xl text-center border border-[#D5E0EB]">
               <span className="text-xs text-slate-500 block font-semibold">New Assigned</span>
-              <strong className="text-lg font-black text-amber-600">{newCount}</strong>
+              <strong className="text-xl font-black text-amber-600">{newCount}</strong>
             </div>
-            <div className="bg-[#F7F9FC] p-2.5 rounded-xl text-center border border-slate-200/70">
+            <div className="bg-[#F7F9FC] p-2 sm:p-2.5 rounded-xl text-center border border-[#D5E0EB]">
               <span className="text-xs text-slate-500 block font-semibold">In Progress</span>
-              <strong className="text-lg font-black text-blue-600">{inProgressCount}</strong>
+              <strong className="text-xl font-black text-blue-600">{inProgressCount}</strong>
             </div>
-            <div className="bg-[#F7F9FC] p-2.5 rounded-xl text-center border border-slate-200/70">
+            <div className="bg-[#F7F9FC] p-2 sm:p-2.5 rounded-xl text-center border border-[#D5E0EB]">
               <span className="text-xs text-slate-500 block font-semibold">Completed</span>
-              <strong className="text-lg font-black text-emerald-600">{completedCount}</strong>
+              <strong className="text-xl font-black text-emerald-600">{completedCount}</strong>
             </div>
           </div>
         </div>
@@ -405,7 +400,7 @@ export default function VolunteerDashboardPage() {
       {/* ==================================================================== */}
       {/* 4. MAIN TASK FEED & FILTER TABS                                      */}
       {/* ==================================================================== */}
-      <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 py-6 w-full space-y-6">
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-5 w-full space-y-4">
         {/* Status Filter Tabs (Large Touch Friendly for Mobile) */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
           <button
@@ -461,7 +456,7 @@ export default function VolunteerDashboardPage() {
 
         {/* Task Cards Feed */}
         {filteredTasks.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-[#E1E8F0] p-10 text-center space-y-3">
+          <div className="bg-white rounded-2xl border border-[#E1E8F0] p-8 sm:p-10 text-center space-y-3">
             <CheckCircle2 className="w-12 h-12 text-teal-600 mx-auto" />
             <h3 className="text-lg font-bold text-[#17324F]">No Active Tasks in this Category</h3>
             <p className="text-xs sm:text-sm text-slate-500 max-w-sm mx-auto">
@@ -469,7 +464,7 @@ export default function VolunteerDashboardPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-3.5">
             {filteredTasks.map((task) => {
               const isAssigned = task.status === 'assigned';
               const isAccepted = task.status === 'accepted';
@@ -496,7 +491,7 @@ export default function VolunteerDashboardPage() {
                 >
                   {/* Task Card Header Banner */}
                   <div
-                    className={`px-5 py-3 border-b flex items-center justify-between gap-2 text-xs font-bold ${
+                    className={`px-4 sm:px-5 py-2.5 border-b flex items-center justify-between gap-2 text-xs font-bold ${
                       isAssigned
                         ? 'bg-amber-50/80 text-amber-900 border-amber-200'
                         : isInProgress
@@ -541,7 +536,7 @@ export default function VolunteerDashboardPage() {
                   </div>
 
                   {/* Task Card Body */}
-                  <div className="p-5 sm:p-6 space-y-4">
+                  <div className="p-4 sm:p-5 space-y-3">
                     {/* Supplies & Title */}
                     <div className="space-y-1">
                       <div className="text-xs uppercase tracking-wider font-bold text-slate-500">
@@ -553,7 +548,7 @@ export default function VolunteerDashboardPage() {
                     </div>
 
                     {/* Destination & Map Navigation CTA */}
-                    <div className="bg-[#F7F9FC] rounded-xl p-4 border border-slate-200/80 space-y-3">
+                    <div className="bg-[#F7F9FC] rounded-xl p-3 sm:p-3.5 border border-slate-200/80 space-y-2">
                       <div className="flex items-start justify-between gap-3 flex-wrap">
                         <div className="space-y-1">
                           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
@@ -600,7 +595,7 @@ export default function VolunteerDashboardPage() {
 
                     {/* Instructions & Practical Safety Guidance */}
                     {task.instructions && (
-                      <div className="text-xs text-slate-700 bg-teal-50/60 border border-teal-100 rounded-xl p-3 space-y-1">
+                      <div className="text-xs text-slate-700 bg-teal-50/60 border border-teal-100 rounded-xl p-2.5 space-y-0.5">
                         <strong className="text-teal-900 block font-bold">
                           Field Instructions &amp; Safety Note:
                         </strong>
@@ -612,7 +607,7 @@ export default function VolunteerDashboardPage() {
 
                     {/* Resolution Details if Completed */}
                     {isResolved && task.resolved_at && (
-                      <div className="text-xs text-slate-500 bg-slate-50 rounded-xl p-3 border border-slate-200 space-y-1">
+                      <div className="text-xs text-slate-500 bg-slate-50 rounded-xl p-2.5 border border-slate-200 space-y-0.5">
                         <div className="font-bold text-emerald-800 flex items-center gap-1.5">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                           <span>Delivered on {new Date(task.resolved_at).toLocaleString()}</span>
@@ -624,7 +619,7 @@ export default function VolunteerDashboardPage() {
                     )}
 
                     {/* Action Buttons (Large Touch-Friendly for Mobile Responders) */}
-                    <div className="pt-2 flex items-center gap-3 flex-wrap">
+                    <div className="pt-1.5 flex items-center gap-2.5 sm:gap-3 flex-wrap">
                       {isAssigned && (
                         <button
                           type="button"
@@ -765,16 +760,16 @@ export default function VolunteerDashboardPage() {
       {/* ==================================================================== */}
       {/* 6. MOBILE-OPTIMIZED FOOTER                                           */}
       {/* ==================================================================== */}
-      <footer className="bg-white border-t border-[#E1E8F0] py-5 text-xs text-slate-500 mt-auto">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <SetuLogo variant="light" iconSize={24} showTagline={false} />
+      <footer className="bg-[#17324F] border-t border-slate-800 py-6 text-xs text-slate-300 mt-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <SetuLogo variant="dark" iconSize={24} showTagline={false} />
             <span>SETU Volunteer Field Workspace • Built with Bharat 4.0</span>
           </div>
-          <div className="flex items-center gap-4 font-semibold text-[#16877F]">
-            <Link to="/ngo-dashboard" className="hover:underline">NGO Depot</Link>
-            <Link to="/dashboard" className="hover:underline">Coordinator Panel</Link>
-            <Link to="/" className="hover:underline">Home</Link>
+          <div className="flex items-center gap-4 font-semibold text-teal-300">
+            <Link to="/ngo-dashboard" className="hover:underline hover:text-white">NGO Depot</Link>
+            <Link to="/dashboard" className="hover:underline hover:text-white">Coordinator Panel</Link>
+            <Link to="/" className="hover:underline hover:text-white">Home</Link>
           </div>
         </div>
       </footer>
